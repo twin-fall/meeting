@@ -1,0 +1,377 @@
+<section class="page-stt">
+  <h1 class="page-title">UPLOAD</h1>
+
+  <!-- ── 파일 드롭존 ───────────────────────────────────── -->
+  <div id="drop-zone" class="drop-zone" style="max-width:600px;">
+    <div class="drop-zone-icon">🎙️</div>
+    <p class="drop-zone-text">
+      음성 파일을 여기에 드래그하거나 클릭하여 업로드<br />
+      <span style="font-size:11px; color:var(--color-text-muted);">
+        지원 형식: .m4a · .mp3 · .aac · .wav · .flac · .mp4 · .webm
+      </span>
+    </p>
+    <input type="file" id="file-input"
+      accept=".m4a,.mp3,.aac,.wav,.flac,.mp4,.webm" style="display:none;" />
+  </div>
+
+  <!-- 선택된 파일명 + 분석 버튼 -->
+  <div id="file-ready" style="display:none; max-width:600px; margin-top:14px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span class="badge" id="file-name-badge" style="font-size:12px; max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+      <button class="btn btn-primary" id="btn-analyze">ANALYZE →</button>
+      <button class="btn btn-ghost" id="btn-reset" style="padding:10px 14px;">✕</button>
+    </div>
+  </div>
+
+  <!-- ── 진행률 영역 ───────────────────────────────────── -->
+  <div id="progress-section" class="card" style="display:none; max-width:600px; margin-top:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <span class="font-body" id="stage-text" style="font-size:13px; font-weight:500;">대기 중...</span>
+      <span class="font-body" id="elapsed-text" style="font-size:12px; color:var(--color-text-muted);">00:00</span>
+    </div>
+
+    <!-- 프로그레스 바 -->
+    <div style="background:var(--color-border); border-radius:4px; height:8px; overflow:hidden;">
+      <div id="progress-bar"
+        style="height:100%; width:0%; background:var(--color-red); border-radius:4px; transition:width 0.3s ease;"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:6px;">
+      <span style="font-size:11px; color:var(--color-text-muted);" id="percent-text">0%</span>
+      <button class="btn btn-ghost" id="btn-cancel"
+        style="font-size:10px; padding:4px 12px; font-family:var(--font-title);">CANCEL</button>
+    </div>
+  </div>
+
+  <!-- 에러 메시지 -->
+  <div id="stt-error" class="alert alert-error" style="display:none; max-width:600px; margin-top:14px;"></div>
+
+  <!-- ── 결과 미리보기 ─────────────────────────────────── -->
+  <div id="result-section" style="display:none; margin-top:24px; max-width:760px;">
+    <!-- 요약 헤더 -->
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:16px; flex-wrap:wrap;">
+      <span class="font-title" style="font-size:10px;">RESULT</span>
+      <span class="badge" id="result-speaker-count"></span>
+      <span class="badge" id="result-duration"></span>
+      <span class="badge" id="result-seg-count"></span>
+    </div>
+
+    <!-- 발화 카드 리스트 -->
+    <div id="segments-list" style="display:flex; flex-direction:column; gap:10px; max-height:420px; overflow-y:auto; padding-right:4px;">
+      <!-- JS로 생성 -->
+    </div>
+  </div>
+</section>
+
+<style>
+/* ── 발화 카드 ─────────────────────────────────────── */
+.seg-card {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 12px 16px;
+}
+
+.seg-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.speaker-badge {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.seg-timestamp {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: monospace;
+}
+
+.seg-text {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text);
+  padding-top: 2px;
+}
+
+/* 스크롤바 스타일 */
+#segments-list::-webkit-scrollbar { width: 4px; }
+#segments-list::-webkit-scrollbar-track { background: var(--color-bg-card); }
+#segments-list::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
+</style>
+
+<script>
+(function () {
+  // ── 화자 색상 팔레트 ─────────────────────────────────
+  const SPEAKER_COLORS = [
+    { bg: '#002452', label: 'NAVY'   },
+    { bg: '#C51F2A', label: 'RED'    },
+    { bg: '#1a5276', label: 'BLUE'   },
+    { bg: '#6e2c00', label: 'BROWN'  },
+    { bg: '#145a32', label: 'GREEN'  },
+    { bg: '#4a235a', label: 'PURPLE' },
+    { bg: '#4d5656', label: 'GRAY'   },
+    { bg: '#7b241c', label: 'BRICK'  },
+  ];
+
+  const SUPPORTED = new Set(['.m4a','.mp3','.aac','.wav','.flac','.mp4','.webm']);
+
+  let selectedFile  = null;
+  let evtSource     = null;
+  let elapsedTimer  = null;
+  let elapsedSecs   = 0;
+  let resultData    = null;
+
+  // ── DOM 참조 ─────────────────────────────────────────
+  const dropZone       = document.getElementById('drop-zone');
+  const fileInput      = document.getElementById('file-input');
+  const fileReady      = document.getElementById('file-ready');
+  const fileNameBadge  = document.getElementById('file-name-badge');
+  const btnAnalyze     = document.getElementById('btn-analyze');
+  const btnReset       = document.getElementById('btn-reset');
+  const progressSection= document.getElementById('progress-section');
+  const stageText      = document.getElementById('stage-text');
+  const elapsedText    = document.getElementById('elapsed-text');
+  const progressBar    = document.getElementById('progress-bar');
+  const percentText    = document.getElementById('percent-text');
+  const btnCancel      = document.getElementById('btn-cancel');
+  const sttError       = document.getElementById('stt-error');
+  const resultSection  = document.getElementById('result-section');
+
+  // ── 파일 선택 ─────────────────────────────────────────
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+
+  function setFile(file) {
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!SUPPORTED.has(ext)) {
+      showError('.m4a, .mp3, .aac, .wav, .flac, .mp4, .webm 파일만 지원합니다.');
+      return;
+    }
+    hideError();
+    selectedFile = file;
+    fileNameBadge.textContent = file.name;
+    fileReady.style.display = 'flex';
+    dropZone.style.display = 'none';
+    resultSection.style.display = 'none';
+  }
+
+  btnReset.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    fileReady.style.display = 'none';
+    dropZone.style.display = 'block';
+    progressSection.style.display = 'none';
+    resultSection.style.display = 'none';
+    hideError();
+  });
+
+  // ── 분석 시작 ─────────────────────────────────────────
+  btnAnalyze.addEventListener('click', startAnalysis);
+
+  async function startAnalysis() {
+    if (!selectedFile) return;
+    hideError();
+    resultSection.style.display = 'none';
+
+    // HF 토큰 읽기 (electron-store)
+    let hfToken = '';
+    if (window.electronAPI) {
+      hfToken = (await window.electronAPI.store.get('hfToken')) || '';
+    }
+
+    btnAnalyze.disabled = true;
+    btnReset.disabled   = true;
+
+    try {
+      await STT.process(selectedFile, hfToken);
+    } catch (e) {
+      showError(e.message);
+      btnAnalyze.disabled = false;
+      btnReset.disabled   = false;
+      return;
+    }
+
+    // 진행률 UI 시작
+    startProgressUI();
+    subscribeProgress();
+  }
+
+  // ── 진행률 UI ─────────────────────────────────────────
+  function startProgressUI() {
+    progressSection.style.display = 'block';
+    elapsedSecs = 0;
+    elapsedText.textContent = '00:00';
+    elapsedTimer = setInterval(() => {
+      elapsedSecs++;
+      const m = String(Math.floor(elapsedSecs / 60)).padStart(2, '0');
+      const s = String(elapsedSecs % 60).padStart(2, '0');
+      elapsedText.textContent = `${m}:${s}`;
+    }, 1000);
+  }
+
+  function stopProgressUI() {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+
+  function updateBar(percent, stage) {
+    progressBar.style.width = `${percent}%`;
+    percentText.textContent = `${percent}%`;
+    stageText.textContent   = `${stage}...`;
+  }
+
+  // ── SSE 구독 ──────────────────────────────────────────
+  function subscribeProgress() {
+    if (evtSource) { evtSource.close(); evtSource = null; }
+
+    evtSource = STT.progressSource();
+
+    evtSource.onmessage = async (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+
+      updateBar(data.percent, data.stage);
+
+      if (data.error) {
+        stopProgressUI();
+        evtSource.close();
+        stageText.textContent = '오류 발생';
+        showError(data.error);
+        resetAnalyzeButtons();
+        return;
+      }
+
+      if (data.done) {
+        evtSource.close();
+        stopProgressUI();
+        updateBar(100, '완료');
+        stageText.textContent = '완료!';
+        try {
+          resultData = await STT.result();
+          renderResult(resultData);
+        } catch (err) {
+          showError(err.message);
+        }
+        resetAnalyzeButtons();
+      }
+    };
+
+    evtSource.onerror = () => {
+      stopProgressUI();
+      evtSource.close();
+      showError('진행률 스트림 연결이 끊어졌습니다. 처리가 계속 진행 중일 수 있습니다.');
+    };
+  }
+
+  // ── 취소 ──────────────────────────────────────────────
+  btnCancel.addEventListener('click', async () => {
+    try {
+      await STT.cancel();
+      if (evtSource) { evtSource.close(); evtSource = null; }
+      stopProgressUI();
+      stageText.textContent = '취소됨';
+      progressSection.style.display = 'none';
+      resetAnalyzeButtons();
+    } catch (e) {
+      showError(e.message);
+    }
+  });
+
+  function resetAnalyzeButtons() {
+    btnAnalyze.disabled = false;
+    btnReset.disabled   = false;
+  }
+
+  // ── 결과 렌더 ─────────────────────────────────────────
+  const speakerColorMap = {};
+
+  function getSpeakerColor(speaker) {
+    if (!speakerColorMap[speaker]) {
+      const idx = Object.keys(speakerColorMap).length % SPEAKER_COLORS.length;
+      speakerColorMap[speaker] = SPEAKER_COLORS[idx].bg;
+    }
+    return speakerColorMap[speaker];
+  }
+
+  function fmtTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+
+  function fmtDuration(secs) {
+    if (secs >= 3600) {
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      return `${h}시간 ${m}분`;
+    }
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return m > 0 ? `${m}분 ${s}초` : `${s}초`;
+  }
+
+  function renderResult(data) {
+    // 요약 뱃지
+    document.getElementById('result-speaker-count').textContent = `화자 ${data.speaker_count}명`;
+    document.getElementById('result-duration').textContent = `총 ${fmtDuration(data.duration)}`;
+    document.getElementById('result-seg-count').textContent = `${data.segments.length}개 발화`;
+
+    // 발화 카드
+    const list = document.getElementById('segments-list');
+    list.innerHTML = data.segments.map((seg) => {
+      const color = getSpeakerColor(seg.speaker);
+      return `
+        <div class="seg-card">
+          <div class="seg-meta">
+            <span class="speaker-badge" style="background:${color};">${seg.speaker}</span>
+            <span class="seg-timestamp">${fmtTime(seg.start)} – ${fmtTime(seg.end)}</span>
+          </div>
+          <p class="seg-text">${escapeHtml(seg.text)}</p>
+        </div>`;
+    }).join('');
+
+    resultSection.style.display = 'block';
+    resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── 에러 표시 ─────────────────────────────────────────
+  function showError(msg) { sttError.textContent = msg; sttError.style.display = 'block'; }
+  function hideError()    { sttError.style.display = 'none'; }
+
+  // ── NEXT 유효성 검사 ──────────────────────────────────
+  window.onNextValidate = function () {
+    if (!resultData) {
+      showError('음성 파일을 분석한 후 다음 단계로 진행할 수 있습니다.');
+      return false;
+    }
+    // 결과를 전역에 저장 → 다음 단계에서 참조 가능
+    window.sttResult = resultData;
+    return true;
+  };
+})();
+</script>

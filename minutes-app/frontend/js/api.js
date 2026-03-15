@@ -107,6 +107,41 @@ const Transcribe = {
   },
 };
 
+// ── STT + 화자 분리 ──────────────────────────────────
+
+const STT = {
+  /**
+   * 음성 파일과 HF 토큰을 multipart로 전송, 백그라운드 처리 시작.
+   * @param {File} file - 업로드할 음성 파일
+   * @param {string} hfToken - HuggingFace 액세스 토큰
+   */
+  process(file, hfToken = '') {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('hf_token', hfToken);
+    return apiFetch('/stt/process', { method: 'POST', headers: {}, body: form });
+  },
+
+  /**
+   * SSE EventSource 반환 — 진행률 이벤트를 구독.
+   * 각 메시지: { stage, percent, running, error, done }
+   * @returns {EventSource}
+   */
+  progressSource() {
+    return new EventSource(`${API_BASE}/stt/progress`);
+  },
+
+  /** 처리 완료 결과 조회. */
+  result() {
+    return apiFetch('/stt/result');
+  },
+
+  /** 처리 중 취소 요청. */
+  cancel() {
+    return apiFetch('/stt/cancel', { method: 'POST' });
+  },
+};
+
 // ── 회의록 생성 ─────────────────────────────────────
 
 const Minutes = {

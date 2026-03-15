@@ -6,9 +6,9 @@
  *  2. 사원명부 업로드
  *  3. 회의 기본정보 입력    (추후 구현)
  *  4. 음성 입력 방식 선택   (추후 구현)
- *  5. 녹음 / 파일 업로드    (추후 구현)
- *  6. 음성 인식 진행        (추후 구현)
- *  7. 화자 매핑             (추후 구현)
+ *  5. 음성 업로드 + STT     stt.html
+ *  6. 화자 매핑             (추후 구현)
+ *  7. 스크립트 검토         (추후 구현)
  *  8. 스크립트 검토         (추후 구현)
  *  9. 회의록 생성           (추후 구현)
  * 10. 회의록 편집           (추후 구현)
@@ -20,13 +20,13 @@ const STAGES = [
   { id: 2,  label: '②', title: 'EMPLOYEE DB', page: 'pages/stage2-employee.html' },
   { id: 3,  label: '③', title: 'MEETING INFO',page: 'pages/stage-wip.html' },
   { id: 4,  label: '④', title: 'AUDIO MODE',  page: 'pages/stage-wip.html' },
-  { id: 5,  label: '⑤', title: 'RECORDING',   page: 'pages/stage-wip.html' },
-  { id: 6,  label: '⑥', title: 'STT',         page: 'pages/stage-wip.html' },
-  { id: 7,  label: '⑦', title: 'SPEAKER MAP', page: 'pages/stage-wip.html' },
-  { id: 8,  label: '⑧', title: 'SCRIPT',      page: 'pages/stage-wip.html' },
-  { id: 9,  label: '⑨', title: 'GENERATE',    page: 'pages/stage-wip.html' },
-  { id: 10, label: '⑩', title: 'EDIT',        page: 'pages/stage-wip.html' },
-  { id: 11, label: '⑪', title: 'EXPORT',      page: 'pages/stage-wip.html' },
+  { id: 5,  label: '⑤', title: 'UPLOAD',      page: 'pages/stt.html' },
+  { id: 6,  label: '⑥', title: 'SPEAKER MAP', page: 'pages/stage-wip.html' },
+  { id: 7,  label: '⑦', title: 'SCRIPT',      page: 'pages/stage-wip.html' },
+  { id: 8,  label: '⑧', title: 'GENERATE',    page: 'pages/stage-wip.html' },
+  { id: 9,  label: '⑨', title: 'EDIT',        page: 'pages/stage-wip.html' },
+  { id: 10, label: '⑩', title: 'EXPORT',      page: 'pages/stage-wip.html' },
+  { id: 11, label: '⑪', title: 'DONE',        page: 'pages/stage-wip.html' },
 ];
 
 let currentStage = 1;
