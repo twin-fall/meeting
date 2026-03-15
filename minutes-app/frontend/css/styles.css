@@ -1,0 +1,353 @@
+/* =============================================
+   디자인 시스템 변수
+   ============================================= */
+:root {
+  /* 컬러 팔레트 */
+  --color-bg:           #1A1A2E;
+  --color-bg-card:      #0D0D1A;
+  --color-bg-overlay:   rgba(13, 13, 26, 0.92);
+  --color-navy:         #002452;
+  --color-red:          #C51F2A;
+  --color-red-hover:    #a01822;
+  --color-text:         #FFFFFF;
+  --color-text-muted:   #8888AA;
+  --color-border:       #2A2A4A;
+  --color-stage-active: #C51F2A;
+  --color-stage-done:   #002452;
+
+  /* 타이포그래피 */
+  --font-title:   'Press Start 2P', monospace;
+  --font-body:    'Noto Sans KR', sans-serif;
+
+  /* 레이아웃 */
+  --radius-card:  8px;
+  --header-h:     56px;
+  --footer-h:     64px;
+}
+
+/* =============================================
+   리셋 & 기본
+   ============================================= */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* =============================================
+   타이포그래피 유틸
+   ============================================= */
+.font-title { font-family: var(--font-title); }
+.font-body  { font-family: var(--font-body); }
+
+h1.page-title {
+  font-family: var(--font-title);
+  font-size: 18px;
+  color: var(--color-text);
+  margin-bottom: 32px;
+  letter-spacing: 2px;
+}
+
+/* =============================================
+   레이아웃
+   ============================================= */
+.stage-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  background: var(--color-bg-card);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 0 24px;
+}
+
+.app-content {
+  position: fixed;
+  top: var(--header-h);
+  bottom: var(--footer-h);
+  left: 0; right: 0;
+  overflow-y: auto;
+  padding: 32px 48px;
+}
+
+.app-footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: var(--footer-h);
+  background: var(--color-bg-card);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 32px;
+  gap: 12px;
+  z-index: 100;
+}
+
+/* =============================================
+   단계 인디케이터
+   ============================================= */
+.stage-indicator {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stage-dot {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: default;
+  transition: background 0.2s, color 0.2s;
+}
+
+.stage-dot.done    { background: var(--color-stage-done);   color: var(--color-text); }
+.stage-dot.active  { background: var(--color-stage-active); color: var(--color-text); }
+
+/* =============================================
+   버튼
+   ============================================= */
+.btn {
+  font-family: var(--font-title);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--color-red);
+  color: var(--color-text);
+}
+.btn-primary:hover:not(:disabled) { background: var(--color-red-hover); }
+
+.btn-secondary {
+  background: var(--color-navy);
+  color: var(--color-text);
+}
+.btn-secondary:hover:not(:disabled) { background: #003070; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+.btn-ghost:hover:not(:disabled) { border-color: var(--color-text-muted); color: var(--color-text); }
+
+/* 제공사 선택 버튼 그룹 */
+.provider-group {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.btn-provider {
+  font-family: var(--font-title);
+  font-size: 10px;
+  padding: 14px 28px;
+  border-radius: var(--radius-card);
+  border: 2px solid var(--color-border);
+  background: var(--color-bg-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-provider:hover   { border-color: var(--color-red); color: var(--color-text); }
+.btn-provider.active  { border-color: var(--color-red); background: var(--color-navy); color: var(--color-text); }
+
+/* =============================================
+   카드 컴포넌트
+   ============================================= */
+.card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+  padding: 24px;
+}
+
+/* =============================================
+   폼 요소
+   ============================================= */
+.form-group { margin-bottom: 20px; }
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.form-input {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-input:focus { border-color: var(--color-red); }
+.form-input::placeholder { color: var(--color-text-muted); }
+
+/* =============================================
+   드래그&드롭 영역
+   ============================================= */
+.drop-zone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.drop-zone:hover,
+.drop-zone.dragover {
+  border-color: var(--color-red);
+  background: rgba(197, 31, 42, 0.05);
+}
+
+.drop-zone-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.drop-zone-text {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* =============================================
+   테이블
+   ============================================= */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  background: var(--color-navy);
+  color: var(--color-text);
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 700;
+}
+
+.data-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.data-table tr:hover td { background: rgba(0, 36, 82, 0.3); }
+
+/* =============================================
+   알림 / 에러 배너
+   ============================================= */
+.alert {
+  border-radius: var(--radius-card);
+  padding: 12px 16px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.alert-error   { background: rgba(197, 31, 42, 0.15); border: 1px solid var(--color-red); color: #FF8888; }
+.alert-info    { background: rgba(0, 36, 82, 0.4);    border: 1px solid var(--color-navy); color: #88AAFF; }
+.alert-success { background: rgba(0, 120, 60, 0.2);   border: 1px solid #00783C; color: #88FFAA; }
+
+/* =============================================
+   안내 문구
+   ============================================= */
+.notice-text {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.notice-text::before { content: '🔒'; flex-shrink: 0; }
+
+/* =============================================
+   오버레이 (로딩)
+   ============================================= */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.overlay.hidden { display: none; }
+
+.overlay-content { text-align: center; }
+
+/* =============================================
+   링크
+   ============================================= */
+a.external-link {
+  color: var(--color-red);
+  font-size: 12px;
+  text-decoration: none;
+}
+a.external-link:hover { text-decoration: underline; }
+
+/* =============================================
+   배지 / 카운터
+   ============================================= */
+.badge {
+  display: inline-block;
+  background: var(--color-navy);
+  color: var(--color-text);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* =============================================
+   드롭다운
+   ============================================= */
+.form-select {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 10px 14px;
+  outline: none;
+  cursor: pointer;
+}
+
+.form-select:focus { border-color: var(--color-red); }

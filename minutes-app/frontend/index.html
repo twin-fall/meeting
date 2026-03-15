@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src http://localhost:8765" />
+  <title>회의록 자동작성</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+KR:wght@400;500;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- 백엔드 연결 대기 오버레이 -->
+  <div id="loading-overlay" class="overlay">
+    <div class="overlay-content">
+      <p class="font-title" style="font-size: 12px;">LOADING...</p>
+      <p class="font-body" style="margin-top: 16px; color: var(--color-text-muted);">서버를 시작하는 중입니다.</p>
+    </div>
+  </div>
+
+  <!-- 단계 인디케이터 -->
+  <header class="stage-header">
+    <div class="stage-indicator" id="stage-indicator">
+      <!-- app.js에서 동적 생성 -->
+    </div>
+  </header>
+
+  <!-- 메인 컨텐츠 영역 (페이지 교체) -->
+  <main id="app-content" class="app-content">
+    <!-- 각 단계 페이지가 여기에 로드됨 -->
+  </main>
+
+  <!-- 하단 네비게이션 -->
+  <footer class="app-footer">
+    <button id="btn-prev" class="btn btn-secondary" style="display:none;">← BACK</button>
+    <button id="btn-next" class="btn btn-primary">NEXT →</button>
+  </footer>
+
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "name": "minutes-app",
+  "version": "1.0.0",
+  "description": "인사팀 회의록 자동작성 앱",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.hrteam.minutes-app",
+    "productName": "회의록 자동작성",
+    "win": {
+      "target": "nsis"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "frontend/**/*",
+      "backend/**/*",
+      "!backend/__pycache__"
+    ]
+  }
+}

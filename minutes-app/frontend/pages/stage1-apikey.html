@@ -1,0 +1,121 @@
+<section class="page-stage1">
+  <h1 class="page-title">API SETUP</h1>
+
+  <!-- 제공사 선택 -->
+  <div class="form-group">
+    <label class="form-label">LLM 제공사를 선택하세요</label>
+    <div class="provider-group">
+      <button class="btn-provider" data-provider="claude">CLAUDE</button>
+      <button class="btn-provider" data-provider="gpt">GPT</button>
+      <button class="btn-provider" data-provider="gemini">GEMINI</button>
+    </div>
+  </div>
+
+  <!-- 키 입력 영역 (제공사 선택 시 표시) -->
+  <div id="key-section" class="card" style="display:none; max-width:560px;">
+    <div class="form-group">
+      <label class="form-label" id="key-label">API 키</label>
+      <input type="password" class="form-input" id="api-key-input" placeholder="sk-..." autocomplete="off" />
+    </div>
+    <div id="key-link-area" style="margin-bottom:8px;">
+      <!-- 동적 링크 삽입 -->
+    </div>
+    <p class="notice-text">입력하신 API 키는 이 기기에만 저장되며 외부로 전송되지 않습니다.</p>
+  </div>
+
+  <!-- 저장 완료 메시지 -->
+  <div id="save-success" class="alert alert-success" style="display:none; max-width:560px; margin-top:16px;">
+    API 키가 저장되었습니다.
+  </div>
+  <div id="save-error" class="alert alert-error" style="display:none; max-width:560px; margin-top:16px;"></div>
+</section>
+
+<script>
+(function () {
+  const PROVIDER_CONFIG = {
+    claude: {
+      label: 'Anthropic API 키',
+      placeholder: 'sk-ant-...',
+      url: 'https://console.anthropic.com',
+      urlLabel: 'console.anthropic.com에서 발급',
+    },
+    gpt: {
+      label: 'OpenAI API 키',
+      placeholder: 'sk-...',
+      url: 'https://platform.openai.com/api-keys',
+      urlLabel: 'platform.openai.com에서 발급',
+    },
+    gemini: {
+      label: 'Google AI API 키',
+      placeholder: 'AIza...',
+      url: 'https://aistudio.google.com/apikey',
+      urlLabel: 'aistudio.google.com에서 발급',
+    },
+  };
+
+  let selectedProvider = null;
+
+  // 저장된 제공사 복원
+  async function init() {
+    if (!window.electronAPI) return;
+    const saved = await window.electronAPI.store.get('apiProvider');
+    if (saved && PROVIDER_CONFIG[saved]) {
+      selectProvider(saved);
+      const key = await window.electronAPI.store.get(`apiKey_${saved}`);
+      if (key) document.getElementById('api-key-input').value = key;
+    }
+  }
+
+  function selectProvider(provider) {
+    selectedProvider = provider;
+    document.querySelectorAll('.btn-provider').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.provider === provider);
+    });
+
+    const cfg = PROVIDER_CONFIG[provider];
+    document.getElementById('key-label').textContent = cfg.label;
+    document.getElementById('api-key-input').placeholder = cfg.placeholder;
+    document.getElementById('key-link-area').innerHTML =
+      `<a class="external-link" href="${cfg.url}" data-external>${cfg.urlLabel} ↗</a>`;
+    document.getElementById('key-section').style.display = 'block';
+  }
+
+  // 제공사 버튼 클릭
+  document.querySelectorAll('.btn-provider').forEach((btn) => {
+    btn.addEventListener('click', () => selectProvider(btn.dataset.provider));
+  });
+
+  // NEXT 누를 때 유효성 검사 & 저장
+  window.onNextValidate = async function () {
+    document.getElementById('save-error').style.display = 'none';
+    document.getElementById('save-success').style.display = 'none';
+
+    if (!selectedProvider) {
+      showError('LLM 제공사를 선택해 주세요.');
+      return false;
+    }
+
+    const key = document.getElementById('api-key-input').value.trim();
+    if (!key) {
+      showError('API 키를 입력해 주세요.');
+      return false;
+    }
+
+    if (window.electronAPI) {
+      await window.electronAPI.store.set('apiProvider', selectedProvider);
+      await window.electronAPI.store.set(`apiKey_${selectedProvider}`, key);
+    }
+
+    document.getElementById('save-success').style.display = 'block';
+    return true;
+  };
+
+  function showError(msg) {
+    const el = document.getElementById('save-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  init();
+})();
+</script>

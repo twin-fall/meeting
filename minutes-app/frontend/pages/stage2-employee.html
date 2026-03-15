@@ -1,0 +1,164 @@
+<section class="page-stage2">
+  <h1 class="page-title">EMPLOYEE DB</h1>
+
+  <!-- 파일 드롭존 -->
+  <div id="drop-zone" class="drop-zone" style="max-width:560px;">
+    <div class="drop-zone-icon">📂</div>
+    <p class="drop-zone-text">
+      .xlsx 또는 .csv 파일을 여기에 드래그하거나 클릭하여 업로드<br />
+      <span style="font-size:11px;">(지원 형식: .xlsx, .csv)</span>
+    </p>
+    <input type="file" id="file-input" accept=".xlsx,.csv" style="display:none;" />
+  </div>
+
+  <!-- 에러 메시지 -->
+  <div id="upload-error" class="alert alert-error" style="display:none; max-width:560px; margin-top:12px;"></div>
+
+  <!-- 컬럼 매핑 -->
+  <div id="mapping-section" class="card" style="display:none; max-width:560px; margin-top:20px;">
+    <p class="form-label" style="margin-bottom:16px;">컬럼 매핑을 확인해 주세요</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+      <div class="form-group">
+        <label class="form-label">소속</label>
+        <select class="form-select" id="map-dept" style="width:100%;"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">성명</label>
+        <select class="form-select" id="map-name" style="width:100%;"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">직위</label>
+        <select class="form-select" id="map-position" style="width:100%;"></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- 미리보기 테이블 -->
+  <div id="preview-section" style="display:none; margin-top:20px; max-width:760px;">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+      <span class="form-label" style="margin:0;">미리보기</span>
+      <span class="badge" id="employee-count">0명</span>
+    </div>
+    <div class="card" style="overflow:auto; max-height:280px;">
+      <table class="data-table" id="preview-table">
+        <thead>
+          <tr>
+            <th>소속</th>
+            <th>성명</th>
+            <th>직위</th>
+          </tr>
+        </thead>
+        <tbody id="preview-body"></tbody>
+      </table>
+    </div>
+    <div id="save-success" class="alert alert-success" style="display:none; margin-top:12px;">
+      사원명부가 저장되었습니다.
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  let parsedData = null;   // [{ raw columns }]
+  let columns = [];        // 원본 컬럼명 배열
+
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const errorEl    = document.getElementById('upload-error');
+
+  // 드롭존 클릭
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  // 드래그&드롭
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+
+  async function handleFile(file) {
+    hideError();
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['xlsx', 'csv'].includes(ext)) {
+      showError('.xlsx 또는 .csv 파일만 업로드할 수 있습니다.');
+      return;
+    }
+
+    try {
+      const result = await Employee.upload(file);
+      parsedData = result.rows;
+      columns    = result.columns;
+      setupMapping(columns);
+      renderPreview();
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  function setupMapping(cols) {
+    const DEFAULTS = { dept: ['소속', '부서', 'department'], name: ['성명', '이름', '이름(Name)', 'name'], position: ['직위', '직급', 'position', 'title'] };
+    ['dept', 'name', 'position'].forEach((key) => {
+      const sel = document.getElementById(`map-${key}`);
+      sel.innerHTML = cols.map((c) => `<option value="${c}">${c}</option>`).join('');
+      const def = DEFAULTS[key].find((d) => cols.some((c) => c.toLowerCase().includes(d.toLowerCase())));
+      if (def) {
+        const match = cols.find((c) => c.toLowerCase().includes(def.toLowerCase()));
+        if (match) sel.value = match;
+      }
+    });
+    document.getElementById('mapping-section').style.display = 'block';
+    ['dept', 'name', 'position'].forEach((key) => {
+      document.getElementById(`map-${key}`).addEventListener('change', renderPreview);
+    });
+  }
+
+  function getMapping() {
+    return {
+      dept:     document.getElementById('map-dept').value,
+      name:     document.getElementById('map-name').value,
+      position: document.getElementById('map-position').value,
+    };
+  }
+
+  function renderPreview() {
+    if (!parsedData) return;
+    const map = getMapping();
+    const tbody = document.getElementById('preview-body');
+    tbody.innerHTML = parsedData.slice(0, 50).map((row) => `
+      <tr>
+        <td>${row[map.dept] ?? ''}</td>
+        <td>${row[map.name] ?? ''}</td>
+        <td>${row[map.position] ?? ''}</td>
+      </tr>
+    `).join('');
+    document.getElementById('employee-count').textContent = `${parsedData.length}명`;
+    document.getElementById('preview-section').style.display = 'block';
+  }
+
+  // NEXT 눌렀을 때 저장
+  window.onNextValidate = async function () {
+    document.getElementById('save-success').style.display = 'none';
+    if (!parsedData) {
+      showError('사원명부 파일을 업로드해 주세요.');
+      return false;
+    }
+    try {
+      await Employee.save(getMapping());
+      document.getElementById('save-success').style.display = 'block';
+      return true;
+    } catch (e) {
+      showError(e.message);
+      return false;
+    }
+  };
+
+  function showError(msg) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
+  function hideError()    { errorEl.style.display = 'none'; }
+})();
+</script>
