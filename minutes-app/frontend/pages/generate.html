@@ -1,0 +1,426 @@
+<section class="page-generate">
+
+  <!-- ── 제목 ──────────────────────────────────────────── -->
+  <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:24px;">
+    <h1 class="page-title" id="gen-title" style="margin-bottom:0;">GENERATE</h1>
+    <span id="gen-status-badge" class="badge" style="display:none;"></span>
+  </div>
+
+  <!-- ── 사전 검증 결과 ──────────────────────────────────── -->
+  <div id="preflight-ok"  class="alert alert-success" style="display:none; max-width:700px; margin-bottom:16px;">
+    ✅ 가명처리 검증 완료 — 원본 성명이 포함되지 않았습니다.
+  </div>
+  <div id="preflight-err" class="alert alert-error"   style="display:none; max-width:700px; margin-bottom:16px;"></div>
+
+  <!-- ── 회의 정보 요약 카드 ────────────────────────────── -->
+  <div class="card" id="info-summary" style="max-width:700px; margin-bottom:20px; display:none;">
+    <p class="form-label" style="margin-bottom:10px;">전송 데이터 요약</p>
+    <div id="summary-body" style="display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; font-size:13px;"></div>
+  </div>
+
+  <!-- ── 고급 설정 (접힘) ──────────────────────────────── -->
+  <details id="advanced-settings" style="max-width:700px; margin-bottom:20px;">
+    <summary style="
+      font-family: var(--font-title); font-size:10px; letter-spacing:1px;
+      cursor:pointer; color:var(--color-text-muted); padding:8px 0;
+      list-style:none; display:flex; align-items:center; gap:8px;">
+      <span id="adv-arrow">▶</span> 고급 설정 (시스템 프롬프트 편집)
+    </summary>
+    <div style="margin-top:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <label class="form-label" style="margin:0;">시스템 프롬프트</label>
+        <button class="btn btn-ghost" id="btn-restore-prompt"
+          style="font-size:10px; padding:5px 12px; font-family:var(--font-title);">
+          기본값으로 복원
+        </button>
+      </div>
+      <textarea id="system-prompt-editor" class="form-input"
+        rows="12" style="font-family:monospace; font-size:12px; resize:vertical;"></textarea>
+    </div>
+  </details>
+
+  <!-- ── 진행 단계 표시 ────────────────────────────────── -->
+  <div id="step-bar" class="card" style="max-width:700px; margin-bottom:16px; display:none;">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span class="step-chip" id="step-send">전송 중</span>
+      <span style="color:var(--color-text-muted);">→</span>
+      <span class="step-chip" id="step-gen">생성 중</span>
+      <span style="color:var(--color-text-muted);">→</span>
+      <span class="step-chip" id="step-done">완료</span>
+      <span id="token-display" style="margin-left:auto; font-size:12px; color:var(--color-text-muted);"></span>
+    </div>
+  </div>
+
+  <!-- ── 오류 / 재시도 ─────────────────────────────────── -->
+  <div id="gen-error-box" style="display:none; max-width:700px; margin-bottom:16px;">
+    <div class="alert alert-error" id="gen-error-msg"></div>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+      <button class="btn btn-secondary" id="btn-retry"
+        style="font-size:10px; font-family:var(--font-title);">
+        재시도 (<span id="retry-count">0</span>/3)
+      </button>
+      <span style="font-size:12px; color:var(--color-text-muted);" id="retry-hint"></span>
+    </div>
+  </div>
+
+  <!-- ── GENERATE 버튼 / 취소 버튼 ──────────────────────── -->
+  <div style="display:flex; gap:12px; max-width:700px; margin-bottom:20px;">
+    <button class="btn btn-primary" id="btn-generate"
+      style="font-family:var(--font-title); font-size:11px;">
+      GENERATE →
+    </button>
+    <button class="btn btn-ghost" id="btn-cancel"
+      style="font-family:var(--font-title); font-size:10px; display:none;">
+      CANCEL
+    </button>
+  </div>
+
+  <!-- ── 스트리밍 출력 영역 ─────────────────────────────── -->
+  <div id="output-section" style="max-width:700px; display:none;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+      <p class="form-label" style="margin:0;">회의록 초안</p>
+      <span id="cost-display" style="font-size:12px; color:var(--color-text-muted);"></span>
+    </div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <pre id="output-pre"
+        style="margin:0; padding:20px; font-family:var(--font-body); font-size:13px;
+               line-height:1.8; white-space:pre-wrap; word-break:break-word;
+               max-height:440px; overflow-y:auto; color:var(--color-text);
+               background:var(--color-bg-card);"></pre>
+    </div>
+  </div>
+
+</section>
+
+<!-- ── 인라인 스타일 ────────────────────────────────────── -->
+<style>
+@keyframes blink-title {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+.title-blinking { animation: blink-title 0.9s ease-in-out infinite; }
+
+.step-chip {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  transition: background 0.2s, color 0.2s;
+}
+.step-chip.active { background: var(--color-red);   color: #fff; }
+.step-chip.done   { background: var(--color-navy);  color: #fff; }
+
+/* 스트리밍 커서 */
+@keyframes cursor-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.stream-cursor::after {
+  content: '▌';
+  animation: cursor-blink 0.6s infinite;
+  color: var(--color-red);
+}
+</style>
+
+<script>
+(function () {
+  // ── 비용 테이블 ──────────────────────────────────────
+  const COST_PER_1M = { claude: 3, gpt: 5, gemini: 1.25 };
+  const PROVIDER_LABEL = { claude: 'Claude Sonnet', gpt: 'GPT-4o', gemini: 'Gemini 1.5 Pro' };
+
+  // ── 상태 변수 ────────────────────────────────────────
+  let abortCtrl    = null;
+  let retryCount   = 0;
+  const MAX_RETRY  = 3;
+  let isGenerating = false;
+  let isDone       = false;
+  let defaultPrompt = '';
+  let outputText   = '';
+  let provider     = '';
+
+  // ── DOM 참조 ─────────────────────────────────────────
+  const title       = document.getElementById('gen-title');
+  const statusBadge = document.getElementById('gen-status-badge');
+  const stepBar     = document.getElementById('step-bar');
+  const stepSend    = document.getElementById('step-send');
+  const stepGen     = document.getElementById('step-gen');
+  const stepDone    = document.getElementById('step-done');
+  const tokenDisp   = document.getElementById('token-display');
+  const costDisp    = document.getElementById('cost-display');
+  const outputSec   = document.getElementById('output-section');
+  const outputPre   = document.getElementById('output-pre');
+  const btnGen      = document.getElementById('btn-generate');
+  const btnCancel   = document.getElementById('btn-cancel');
+  const errBox      = document.getElementById('gen-error-box');
+  const errMsg      = document.getElementById('gen-error-msg');
+  const retryCnt    = document.getElementById('retry-count');
+  const retryHint   = document.getElementById('retry-hint');
+  const promptEditor= document.getElementById('system-prompt-editor');
+  const summaryBody = document.getElementById('summary-body');
+
+  // ── 초기화 ────────────────────────────────────────────
+  async function init() {
+    // 기본 프롬프트 로드
+    try {
+      const res = await LLM.defaultPrompt();
+      defaultPrompt = res.prompt || '';
+    } catch { defaultPrompt = ''; }
+    promptEditor.value = defaultPrompt;
+
+    // 제공사 + API 키 읽기
+    if (window.electronAPI) {
+      provider = (await window.electronAPI.store.get('apiProvider')) || '';
+    }
+
+    // 사전 검증
+    const violations = preflight();
+    if (violations.length > 0) {
+      document.getElementById('preflight-err').textContent =
+        `⛔ 원본 성명 ${violations.length}건이 가명처리 없이 남아있습니다. ` +
+        '가명처리 단계로 돌아가 확인해 주세요.';
+      document.getElementById('preflight-err').style.display = 'block';
+      btnGen.disabled = true;
+    } else {
+      document.getElementById('preflight-ok').style.display = 'block';
+    }
+
+    // 요약 카드 렌더
+    renderSummary();
+
+    // details 토글 아이콘
+    document.getElementById('advanced-settings').addEventListener('toggle', (e) => {
+      document.getElementById('adv-arrow').textContent = e.target.open ? '▼' : '▶';
+    });
+  }
+
+  // ── 사전 검증 ─────────────────────────────────────────
+  function preflight() {
+    const mapping   = (window.pseudonymResult?.mapping_table) || {};
+    const originals = Object.values(mapping).filter(n => n.length >= 2);
+    const segments  = (window.pseudonymResult?.anonymized_segments) || [];
+    const found = [];
+    for (const name of originals) {
+      for (const seg of segments) {
+        if ((seg.text || '').includes(name) || (seg.speaker || '').includes(name)) {
+          if (!found.includes(name)) found.push(name);
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
+  // ── 요약 카드 ─────────────────────────────────────────
+  function renderSummary() {
+    const mi   = window.meetingInfo || {};
+    const segs = (window.pseudonymResult?.anonymized_segments) || [];
+    const ptcp = (mi.participants || []).length;
+    const items = [
+      ['일시',    mi.datetime  || '—'],
+      ['장소',    mi.location  || '—'],
+      ['종류',    mi.type      || '—'],
+      ['참석자',  `${ptcp}명`],
+      ['발화 수', `${segs.length}개`],
+      ['제공사',  PROVIDER_LABEL[provider] || provider || '—'],
+    ];
+    summaryBody.innerHTML = items.map(([k, v]) =>
+      `<div style="color:var(--color-text-muted);">${k}</div><div>${esc(v)}</div>`
+    ).join('');
+    document.getElementById('info-summary').style.display = 'block';
+  }
+
+  // ── 프롬프트 복원 ─────────────────────────────────────
+  document.getElementById('btn-restore-prompt').addEventListener('click', () => {
+    promptEditor.value = defaultPrompt;
+  });
+
+  // ── 페이로드 빌더 ─────────────────────────────────────
+  async function buildPayload() {
+    // API 키 읽기
+    let apiKey = '';
+    if (window.electronAPI) {
+      apiKey = (await window.electronAPI.store.get(`apiKey_${provider}`)) || '';
+    }
+
+    // 역방향 매핑: 원본 → 별칭
+    const mappingTable = (window.pseudonymResult?.mapping_table) || {};
+    const reverseMap   = Object.fromEntries(
+      Object.entries(mappingTable).map(([alias, orig]) => [orig, alias])
+    );
+
+    // 참석자 가명처리
+    const participants = (window.meetingInfo?.participants || []).map(p => ({
+      name:     reverseMap[p.name]     || p.name     || '',
+      dept:     reverseMap[p.dept]     || p.dept     || '',
+      position: reverseMap[p.position] || p.position || '',
+    }));
+
+    const mi = window.meetingInfo || {};
+
+    return {
+      provider,
+      api_key:              apiKey,
+      system_prompt:        promptEditor.value.trim() || defaultPrompt,
+      anonymized_segments:  (window.pseudonymResult?.anonymized_segments) || [],
+      meeting_info: {
+        datetime: mi.datetime || '',
+        location: mi.location || '',
+        type:     mi.type     || '',
+        agenda:   mi.agenda   || '',
+      },
+      participants,
+      original_names: Object.values(mappingTable).filter(n => n.length >= 2),
+    };
+  }
+
+  // ── 생성 실행 ─────────────────────────────────────────
+  btnGen.addEventListener('click', () => startGenerate());
+
+  async function startGenerate() {
+    if (isGenerating) return;
+
+    // 제공사 없음
+    if (!provider) {
+      showError('LLM 제공사가 설정되지 않았습니다. 1단계(API SETUP)로 돌아가 설정해 주세요.');
+      return;
+    }
+
+    isGenerating = true;
+    isDone       = false;
+    outputText   = '';
+    errBox.style.display = 'none';
+
+    setPhase('generating');
+
+    let payload;
+    try { payload = await buildPayload(); }
+    catch (e) { handleError(e.message); return; }
+
+    abortCtrl = new AbortController();
+
+    try {
+      await LLM.stream(payload, {
+        signal:  abortCtrl.signal,
+        onChunk: (text) => {
+          outputText += text;
+          outputPre.textContent = outputText;
+          outputPre.scrollTop   = outputPre.scrollHeight;
+        },
+        onDone: (tokens) => {
+          isGenerating = false;
+          isDone       = true;
+          setPhase('done', tokens);
+        },
+        onError: (msg) => {
+          handleError(msg);
+        },
+      });
+    } catch (e) {
+      if (e.name !== 'AbortError') handleError(e.message);
+    }
+  }
+
+  // ── 취소 ──────────────────────────────────────────────
+  btnCancel.addEventListener('click', () => {
+    if (abortCtrl) abortCtrl.abort();
+    isGenerating = false;
+    setPhase('idle');
+    outputPre.classList.remove('stream-cursor');
+  });
+
+  // ── 재시도 ────────────────────────────────────────────
+  document.getElementById('btn-retry').addEventListener('click', () => {
+    if (retryCount >= MAX_RETRY) {
+      retryHint.textContent = '최대 재시도 횟수(3회)를 초과했습니다.';
+      return;
+    }
+    retryCount++;
+    retryCnt.textContent  = retryCount;
+    errBox.style.display  = 'none';
+    startGenerate();
+  });
+
+  // ── 오류 처리 ─────────────────────────────────────────
+  function handleError(msg) {
+    isGenerating = false;
+    setPhase('error');
+    errMsg.textContent   = msg;
+    errBox.style.display = 'block';
+    retryCnt.textContent = retryCount;
+    retryHint.textContent = retryCount >= MAX_RETRY ? '최대 재시도 횟수 초과' : '';
+    document.getElementById('btn-retry').disabled = (retryCount >= MAX_RETRY);
+  }
+
+  // ── UI 단계 전환 ──────────────────────────────────────
+  function setPhase(phase, tokens) {
+    // 제목
+    title.classList.toggle('title-blinking', phase === 'generating');
+    title.textContent = phase === 'generating' ? 'GENERATING...'
+                      : phase === 'done'        ? 'GENERATE'
+                      : 'GENERATE';
+
+    // 상태 뱃지
+    if (phase === 'done') {
+      statusBadge.textContent = '✓ 완료';
+      statusBadge.style.background = '#145a32';
+      statusBadge.style.display = 'inline-block';
+    } else {
+      statusBadge.style.display = 'none';
+    }
+
+    // 단계 칩
+    stepBar.style.display = (phase !== 'idle') ? 'block' : 'none';
+    stepSend.className = 'step-chip';
+    stepGen.className  = 'step-chip';
+    stepDone.className = 'step-chip';
+
+    if (phase === 'generating') {
+      stepSend.classList.add('done');
+      stepGen.classList.add('active');
+      outputSec.style.display = 'block';
+      outputPre.classList.add('stream-cursor');
+    } else if (phase === 'done') {
+      stepSend.classList.add('done');
+      stepGen.classList.add('done');
+      stepDone.classList.add('done');
+      outputPre.classList.remove('stream-cursor');
+      if (tokens != null) {
+        const cost = ((COST_PER_1M[provider] || 0) * tokens / 1_000_000).toFixed(4);
+        tokenDisp.textContent = `${tokens.toLocaleString()} 토큰`;
+        costDisp.textContent  = `≈ $${cost} (${PROVIDER_LABEL[provider] || provider})`;
+      }
+    } else if (phase === 'error') {
+      outputPre.classList.remove('stream-cursor');
+    }
+
+    // 버튼
+    btnGen.style.display    = (phase !== 'generating') ? 'inline-block' : 'none';
+    btnCancel.style.display = (phase === 'generating')  ? 'inline-block' : 'none';
+    btnGen.disabled         = (phase === 'generating');
+  }
+
+  // ── NEXT 유효성 검사 ──────────────────────────────────
+  window.onNextValidate = function () {
+    if (!isDone) {
+      showError('회의록을 먼저 생성해 주세요.');
+      return false;
+    }
+    window.generatedMinutes = outputText;
+    return true;
+  };
+
+  function showError(msg) {
+    errMsg.textContent   = msg;
+    errBox.style.display = 'block';
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── 초기화 실행 ───────────────────────────────────────
+  init();
+})();
+</script>

@@ -165,7 +165,83 @@ const Pseudonymize = {
   },
 };
 
-// ── 회의록 생성 ─────────────────────────────────────
+// ── LLM 회의록 생성 (SSE 스트리밍) ──────────────────────
+
+const LLM = {
+  /**
+   * 기본 시스템 프롬프트를 백엔드에서 가져옵니다.
+   */
+  defaultPrompt() {
+    return apiFetch('/llm/default-prompt');
+  },
+
+  /**
+   * POST /llm/generate 를 fetch 스트리밍으로 호출.
+   * EventSource는 POST를 지원하지 않으므로 fetch + ReadableStream 방식을 사용.
+   *
+   * @param {object}   payload       - GenerateRequest 본문
+   * @param {Function} onChunk       - (text: string) => void
+   * @param {Function} onDone        - (totalTokens: number) => void
+   * @param {Function} onError       - (message: string) => void
+   * @param {AbortSignal} signal     - AbortController.signal
+   */
+  async stream(payload, { onChunk, onDone, onError, signal } = {}) {
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/llm/generate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+        signal,
+      });
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      throw new Error('서버에 연결할 수 없습니다. 앱을 다시 시작해 주세요.');
+    }
+
+    if (!response.ok) {
+      let detail = '알 수 없는 오류가 발생했습니다.';
+      try { detail = (await response.json()).detail || detail; } catch { /* ignore */ }
+      throw new Error(detail);
+    }
+
+    const reader  = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer    = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE 이벤트 구분자 '\n\n' 단위로 파싱
+        let sepIdx;
+        while ((sepIdx = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, sepIdx);
+          buffer      = buffer.slice(sepIdx + 2);
+
+          for (const line of block.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6).trim();
+            if (!raw) continue;
+            let data;
+            try { data = JSON.parse(raw); } catch { continue; }
+
+            if (data.type === 'chunk' && onChunk)   onChunk(data.content  ?? '');
+            if (data.type === 'done'  && onDone)    onDone(data.total_tokens ?? 0);
+            if (data.type === 'error' && onError)   onError(data.message  ?? '오류 발생');
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError' && onError) onError(err.message);
+    }
+  },
+};
+
+// ── 회의록 생성 (레거시 stub) ──────────────────────────────
 
 const Minutes = {
   /** LLM 호출로 회의록 초안 생성 */

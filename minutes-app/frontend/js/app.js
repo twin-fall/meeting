@@ -9,7 +9,7 @@
  *  5. 음성 업로드 + STT     stt.html
  *  6. 화자 배정             speaker-assign.html
  *  7. 가명처리              pseudonymize-preview.html
- *  8. 회의록 생성           (추후 구현)
+ *  8. 회의록 생성           generate.html
  *  9. 회의록 편집           (추후 구현)
  * 10. 내보내기              (추후 구현)
  * 11. 완료                  (추후 구현)
@@ -23,7 +23,7 @@ const STAGES = [
   { id: 5,  label: '⑤', title: 'UPLOAD',      page: 'pages/stt.html' },
   { id: 6,  label: '⑥', title: 'SPEAKER MAP', page: 'pages/speaker-assign.html' },
   { id: 7,  label: '⑦', title: 'ANONYMIZE',   page: 'pages/pseudonymize-preview.html' },
-  { id: 8,  label: '⑧', title: 'GENERATE',    page: 'pages/stage-wip.html' },
+  { id: 8,  label: '⑧', title: 'GENERATE',    page: 'pages/generate.html' },
   { id: 9,  label: '⑨', title: 'EDIT',        page: 'pages/stage-wip.html' },
   { id: 10, label: '⑩', title: 'EXPORT',      page: 'pages/stage-wip.html' },
   { id: 11, label: '⑪', title: 'DONE',        page: 'pages/stage-wip.html' },
