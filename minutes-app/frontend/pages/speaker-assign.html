@@ -1,0 +1,185 @@
+<section class="page-speaker-assign">
+  <h1 class="page-title">SPEAKER MAP</h1>
+
+  <p class="font-body" style="color:var(--color-text-muted); font-size:13px; margin-bottom:24px; max-width:680px;">
+    감지된 화자를 참석자와 연결해 주세요. 발화 샘플을 참고하면 목소리를 특정하는 데 도움이 됩니다.
+  </p>
+
+  <!-- 화자 카드 목록 -->
+  <div id="speaker-cards" style="display:flex; flex-direction:column; gap:16px; max-width:720px;"></div>
+
+  <div id="assign-error" class="alert alert-error" style="display:none; max-width:720px; margin-top:16px;"></div>
+</section>
+
+<style>
+.speaker-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.speaker-card-meta { display: flex; flex-direction: column; gap: 10px; }
+
+.spk-badge {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 20px;
+  color: #fff;
+  white-space: nowrap;
+  width: fit-content;
+}
+
+.spk-assign-select {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 7px 10px;
+  width: 100%;
+  outline: none;
+  cursor: pointer;
+}
+.spk-assign-select:focus { border-color: var(--color-red); }
+
+.sample-list { display: flex; flex-direction: column; gap: 8px; }
+
+.sample-item {
+  background: var(--color-bg);
+  border-left: 3px solid var(--color-border);
+  border-radius: 0 4px 4px 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.sample-ts {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: monospace;
+  margin-bottom: 3px;
+}
+</style>
+
+<script>
+(function () {
+  const BADGE_COLORS = [
+    '#002452', '#C51F2A', '#1a5276', '#6e2c00',
+    '#145a32', '#4a235a', '#4d5656', '#7b241c',
+  ];
+
+  function fmtTime(s) {
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── 데이터 준비 ─────────────────────────────────────
+  const sttResult   = window.sttResult   || { segments: [], speaker_count: 0 };
+  const meetingInfo = window.meetingInfo || { participants: [] };
+
+  // speaker_count 기반 화자 목록 생성
+  const speakerIds = [];
+  const seenSpk = new Set();
+  for (const seg of sttResult.segments || []) {
+    if (!seenSpk.has(seg.speaker)) {
+      seenSpk.add(seg.speaker);
+      speakerIds.push(seg.speaker);
+    }
+  }
+  if (speakerIds.length === 0) {
+    // STT 결과 없으면 speaker_count 기반 더미
+    for (let i = 0; i < (sttResult.speaker_count || 0); i++) {
+      speakerIds.push(`SPEAKER_${String(i).padStart(2, '0')}`);
+    }
+  }
+
+  // 화자별 발화 샘플 (최대 2개, 가장 텍스트가 긴 것 우선)
+  function getSamples(speakerId) {
+    return (sttResult.segments || [])
+      .filter((s) => s.speaker === speakerId)
+      .sort((a, b) => (b.text || '').length - (a.text || '').length)
+      .slice(0, 2);
+  }
+
+  // 참석자 옵션
+  const participants = meetingInfo.participants || [];
+
+  // 저장된 매핑 복원
+  const saved = window.speakerMapping || {};
+
+  // ── 카드 렌더 ─────────────────────────────────────
+  const container = document.getElementById('speaker-cards');
+
+  speakerIds.forEach((spkId, idx) => {
+    const color   = BADGE_COLORS[idx % BADGE_COLORS.length];
+    const samples = getSamples(spkId);
+
+    const participantOptions = participants.map((p) =>
+      `<option value="${esc(p.name)}" ${saved[spkId] === p.name ? 'selected' : ''}>
+        ${esc(p.name)}${p.position ? ' · ' + esc(p.position) : ''}
+       </option>`
+    ).join('');
+
+    const sampleHtml = samples.length > 0
+      ? samples.map((s) => `
+          <div class="sample-item">
+            <div class="sample-ts">${fmtTime(s.start)} – ${fmtTime(s.end)}</div>
+            <div>${esc(s.text)}</div>
+          </div>`).join('')
+      : '<div class="sample-item" style="color:var(--color-text-muted); font-style:italic;">발화 샘플 없음</div>';
+
+    const card = document.createElement('div');
+    card.className = 'speaker-card';
+    card.dataset.spkId = spkId;
+    card.innerHTML = `
+      <div class="speaker-card-meta">
+        <span class="spk-badge" style="background:${color};">${esc(spkId)}</span>
+        <select class="spk-assign-select" id="sel-${esc(spkId)}">
+          <option value="" ${!saved[spkId] ? 'selected' : ''}>— 미확인 —</option>
+          ${participantOptions}
+        </select>
+      </div>
+      <div class="sample-list">${sampleHtml}</div>`;
+    container.appendChild(card);
+  });
+
+  // STT 결과 없는 경우 안내
+  if (speakerIds.length === 0) {
+    container.innerHTML = `
+      <div class="alert alert-info">
+        STT 결과가 없습니다. 이전 단계로 돌아가 음성 파일을 분석해 주세요.
+      </div>`;
+  }
+
+  // ── NEXT 유효성 검사 ──────────────────────────────
+  window.onNextValidate = function () {
+    document.getElementById('assign-error').style.display = 'none';
+
+    const mapping = {};
+    speakerIds.forEach((spkId) => {
+      const sel = document.getElementById(`sel-${spkId}`);
+      mapping[spkId] = sel ? (sel.value || null) : null;
+    });
+
+    // 전역 저장
+    window.speakerMapping = mapping;
+    return true;
+  };
+})();
+</script>

@@ -1,0 +1,273 @@
+<section class="page-pseudonymize">
+  <h1 class="page-title">ANONYMIZE</h1>
+
+  <!-- 처리 중 오버레이 -->
+  <div id="proc-loading" class="card" style="max-width:640px; text-align:center; padding:40px;">
+    <p class="font-title" style="font-size:11px; margin-bottom:16px;">PROCESSING...</p>
+    <p class="font-body" style="color:var(--color-text-muted); font-size:13px;">가명처리 중입니다. 잠시 기다려 주세요.</p>
+  </div>
+
+  <!-- 오류 -->
+  <div id="proc-error" class="alert alert-error" style="display:none; max-width:640px;"></div>
+
+  <!-- 결과 영역 -->
+  <div id="result-area" style="display:none; max-width:760px;">
+
+    <!-- 통계 요약 -->
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;">
+      <span class="badge" id="stat-replaced"></span>
+      <span class="badge" id="stat-uncertain" style="background:var(--color-red);"></span>
+    </div>
+
+    <!-- ── 매핑 테이블 ── -->
+    <div class="card" style="margin-bottom:20px;">
+      <p class="form-label" style="margin-bottom:14px;">치환 목록 (원본 → 별칭)</p>
+      <div id="mapping-list" style="display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto;"></div>
+    </div>
+
+    <!-- ── 불확실 항목 (NER 감지) ── -->
+    <div id="uncertain-section" class="card" style="display:none; margin-bottom:20px; border-color:var(--color-red);">
+      <p class="form-label" style="margin-bottom:12px; color:#FF8888;">
+        ⚠️ 불확실 항목 — 아래 항목이 추가 검수가 필요할 수 있습니다
+      </p>
+      <div id="uncertain-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+    </div>
+
+    <!-- ── 누락 항목 직접 추가 ── -->
+    <div class="card" style="margin-bottom:20px;">
+      <p class="form-label" style="margin-bottom:12px;">누락 항목 직접 추가</p>
+      <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+          <label class="form-label">원본 텍스트</label>
+          <input type="text" class="form-input" id="manual-original" placeholder="예: 홍길동" />
+        </div>
+        <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+          <label class="form-label">치환 별칭</label>
+          <input type="text" class="form-input" id="manual-alias" placeholder="예: [사람5]" />
+        </div>
+        <button class="btn btn-secondary" id="btn-add-manual"
+          style="font-size:10px; padding:10px 16px; font-family:var(--font-title); white-space:nowrap;">
+          + 추가
+        </button>
+      </div>
+      <div id="manual-error" class="alert alert-error" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <!-- ── 경고 박스 ── -->
+    <div style="
+      border: 2px solid var(--color-red);
+      border-radius: var(--radius-card);
+      background: rgba(197,31,42,0.08);
+      padding: 16px 20px;
+      margin-bottom:20px;">
+      <p class="font-body" style="color:#FF8888; font-size:13px; line-height:1.7;">
+        ⚠️ <strong>가명처리 누락에 대한 책임은 사용자 본인에게 있습니다.</strong><br />
+        위 목록을 꼼꼼히 검수하고, 누락된 개인정보가 없는지 확인한 후 진행해 주세요.
+      </p>
+    </div>
+
+    <!-- ── 검수 완료 체크 ── -->
+    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin-bottom:8px;">
+      <input type="checkbox" id="chk-reviewed" style="width:18px; height:18px; accent-color:var(--color-red);" />
+      <span class="font-body" style="font-size:13px;">
+        가명처리 결과를 검수했으며, 모든 개인정보가 처리되었음을 확인합니다.
+      </span>
+    </label>
+
+    <div id="check-error" class="alert alert-error" style="display:none; margin-top:8px;"></div>
+  </div>
+</section>
+
+<style>
+.mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--color-bg);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.mapping-original { color: var(--color-text-muted); flex: 1; word-break: break-all; }
+.mapping-arrow    { color: var(--color-red); font-weight: 700; flex-shrink: 0; }
+.mapping-alias    { color: var(--color-text); font-weight: 700; min-width: 80px; }
+.mapping-row .btn-del-mapping {
+  background: transparent; border: none; color: var(--color-text-muted);
+  cursor: pointer; font-size: 13px; flex-shrink: 0; padding: 2px 6px;
+}
+.mapping-row .btn-del-mapping:hover { color: var(--color-red); }
+
+.uncertain-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; background: rgba(197,31,42,0.06);
+  border-radius: 4px; font-size: 13px;
+}
+</style>
+
+<script>
+(function () {
+  let currentMapping = {};      // alias → original
+  let anonymizedSegs = [];      // 가명처리된 세그먼트
+
+  // ── 초기 처리 실행 ─────────────────────────────────
+  async function runProcess() {
+    try {
+      const payload = {
+        segments:       (window.sttResult   || {}).segments    || [],
+        participants:   (window.meetingInfo || {}).participants || [],
+        employee_db:    window.employeeDb   || [],
+        speaker_mapping: window.speakerMapping || {},
+      };
+
+      const result = await Pseudonymize.process(payload);
+
+      anonymizedSegs = result.anonymized_segments || [];
+      currentMapping = result.mapping_table       || {};
+
+      window.pseudonymResult = result;   // 하위 단계 참조용
+
+      renderMappingTable();
+      renderUncertain(result.stats?.uncertain_items || []);
+      renderStats(result.stats || {});
+
+      document.getElementById('proc-loading').style.display = 'none';
+      document.getElementById('result-area').style.display  = 'block';
+    } catch (err) {
+      document.getElementById('proc-loading').style.display = 'none';
+      const el = document.getElementById('proc-error');
+      el.textContent = `가명처리 오류: ${err.message}`;
+      el.style.display = 'block';
+    }
+  }
+
+  // ── 매핑 테이블 렌더 ───────────────────────────────
+  function renderMappingTable() {
+    const list = document.getElementById('mapping-list');
+    list.innerHTML = Object.entries(currentMapping).map(([alias, original]) => `
+      <div class="mapping-row" data-alias="${esc(alias)}">
+        <span class="mapping-alias">${esc(alias)}</span>
+        <span class="mapping-arrow">←</span>
+        <span class="mapping-original">${esc(original)}</span>
+        <button class="btn-del-mapping" title="제거">✕</button>
+      </div>`).join('');
+
+    list.querySelectorAll('.btn-del-mapping').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const alias = btn.closest('.mapping-row').dataset.alias;
+        delete currentMapping[alias];
+        renderMappingTable();
+      });
+    });
+
+    if (Object.keys(currentMapping).length === 0) {
+      list.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px;">치환된 항목이 없습니다.</p>';
+    }
+  }
+
+  // ── 불확실 항목 렌더 ───────────────────────────────
+  function renderUncertain(items) {
+    const sec  = document.getElementById('uncertain-section');
+    const list = document.getElementById('uncertain-list');
+    if (!items || items.length === 0) { sec.style.display = 'none'; return; }
+
+    sec.style.display = 'block';
+    list.innerHTML = items.map((word) => `
+      <div class="uncertain-row">
+        <span style="flex:1; color:#FF8888;">⚠️ ${esc(word)}</span>
+        <button class="btn btn-ghost btn-use-uncertain"
+          style="font-size:11px; padding:4px 12px; border-color:var(--color-red); color:var(--color-red);"
+          data-word="${esc(word)}">
+          추가 치환
+        </button>
+      </div>`).join('');
+
+    list.querySelectorAll('.btn-use-uncertain').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.getElementById('manual-original').value = btn.dataset.word;
+        document.getElementById('manual-alias').focus();
+      });
+    });
+  }
+
+  // ── 통계 ───────────────────────────────────────────
+  function renderStats(stats) {
+    document.getElementById('stat-replaced').textContent  = `치환 ${stats.replaced_count || 0}건`;
+    const uncEl = document.getElementById('stat-uncertain');
+    uncEl.textContent = `미확인 ${stats.uncertain_count || 0}건`;
+    uncEl.style.display = (stats.uncertain_count || 0) > 0 ? 'inline-block' : 'none';
+  }
+
+  // ── 누락 항목 추가 ─────────────────────────────────
+  document.getElementById('btn-add-manual').addEventListener('click', () => {
+    const manualError = document.getElementById('manual-error');
+    manualError.style.display = 'none';
+
+    const original = document.getElementById('manual-original').value.trim();
+    const alias    = document.getElementById('manual-alias').value.trim();
+
+    if (!original) { showManualError('원본 텍스트를 입력해 주세요.'); return; }
+    if (!alias)    { showManualError('치환 별칭을 입력해 주세요.'); return; }
+    if (Object.values(currentMapping).includes(original)) {
+      showManualError('이미 등록된 원본 텍스트입니다.'); return;
+    }
+
+    // 세그먼트 텍스트에 직접 치환 적용
+    anonymizedSegs = anonymizedSegs.map((seg) => ({
+      ...seg,
+      text: seg.text.replaceAll(original, alias),
+    }));
+    // 화자 필드에도 치환 (화자가 실명인 경우)
+    anonymizedSegs = anonymizedSegs.map((seg) => ({
+      ...seg,
+      speaker: seg.speaker === original ? alias : seg.speaker,
+    }));
+
+    currentMapping[alias] = original;
+    window.pseudonymResult = {
+      ...window.pseudonymResult,
+      anonymized_segments: anonymizedSegs,
+      mapping_table: currentMapping,
+    };
+
+    renderMappingTable();
+    document.getElementById('manual-original').value = '';
+    document.getElementById('manual-alias').value    = '';
+  });
+
+  function showManualError(msg) {
+    const el = document.getElementById('manual-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  // ── NEXT 유효성 검사 ──────────────────────────────
+  window.onNextValidate = function () {
+    document.getElementById('check-error').style.display = 'none';
+
+    if (!document.getElementById('chk-reviewed').checked) {
+      const el = document.getElementById('check-error');
+      el.textContent = '검수 완료 확인 체크 후 다음 단계로 진행할 수 있습니다.';
+      el.style.display = 'block';
+      return false;
+    }
+
+    // 최종 결과 갱신
+    window.pseudonymResult = {
+      ...(window.pseudonymResult || {}),
+      anonymized_segments: anonymizedSegs,
+      mapping_table: currentMapping,
+    };
+
+    return true;
+  };
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── 시작 ─────────────────────────────────────────
+  runProcess();
+})();
+</script>

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from routers import api_key, employee, audio, transcribe, minutes, stt
+from routers import api_key, employee, audio, transcribe, minutes, stt, pseudonymize
 
 app = FastAPI(title="회의록 자동작성 API", version="1.0.0")
 
@@ -22,6 +22,7 @@ app.include_router(audio.router, prefix="/api/audio", tags=["음성"])
 app.include_router(transcribe.router, prefix="/api/transcribe", tags=["음성인식"])
 app.include_router(minutes.router, prefix="/api/minutes", tags=["회의록"])
 app.include_router(stt.router, prefix="/stt", tags=["STT"])
+app.include_router(pseudonymize.router, prefix="/pseudonymize", tags=["가명처리"])
 
 
 @app.get("/health")

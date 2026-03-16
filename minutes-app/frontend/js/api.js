@@ -68,6 +68,14 @@ const Employee = {
   list() {
     return apiFetch('/api/employee/list');
   },
+
+  /** 업로드 파싱 결과와 컬럼 매핑을 함께 저장 (rows 포함 버전) */
+  saveWithRows(mapping, rows) {
+    return apiFetch('/api/employee/save', {
+      method: 'POST',
+      body: JSON.stringify({ mapping, rows }),
+    });
+  },
 };
 
 // ── 음성 ────────────────────────────────────────────
@@ -139,6 +147,21 @@ const STT = {
   /** 처리 중 취소 요청. */
   cancel() {
     return apiFetch('/stt/cancel', { method: 'POST' });
+  },
+};
+
+// ── 가명처리 ─────────────────────────────────────────
+
+const Pseudonymize = {
+  /**
+   * STT 세그먼트 + 참석자 + 사원명부 + 화자 매핑을 전송해 가명처리 실행.
+   * @param {object} payload - { segments, participants, employee_db, speaker_mapping }
+   */
+  process(payload) {
+    return apiFetch('/pseudonymize/process', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };
 

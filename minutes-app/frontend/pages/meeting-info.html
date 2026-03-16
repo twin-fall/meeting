@@ -1,0 +1,242 @@
+<section class="page-meeting-info">
+  <h1 class="page-title">MEETING INFO</h1>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:760px;">
+
+    <!-- 일시 -->
+    <div class="form-group">
+      <label class="form-label">일시</label>
+      <input type="datetime-local" class="form-input" id="meeting-datetime" />
+    </div>
+
+    <!-- 장소 -->
+    <div class="form-group">
+      <label class="form-label">장소</label>
+      <input type="text" class="form-input" id="meeting-location" placeholder="예: 본관 3층 회의실" />
+    </div>
+
+    <!-- 회의 종류 -->
+    <div class="form-group">
+      <label class="form-label">회의 종류</label>
+      <select class="form-select" id="meeting-type" style="width:100%;">
+        <option value="">선택하세요</option>
+        <option value="노사협의회">노사협의회</option>
+        <option value="인사위원회">인사위원회</option>
+        <option value="팀 회의">팀 회의</option>
+        <option value="기타">기타</option>
+      </select>
+    </div>
+
+    <!-- 안건 -->
+    <div class="form-group" style="grid-column:1/-1;">
+      <label class="form-label">안건</label>
+      <textarea class="form-input" id="meeting-agenda" rows="3"
+        placeholder="회의 안건을 입력하세요"
+        style="resize:vertical; min-height:72px;"></textarea>
+    </div>
+  </div>
+
+  <!-- 참석자 테이블 -->
+  <div style="max-width:760px; margin-top:24px;">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+      <label class="form-label" style="margin:0;">참석자</label>
+      <span class="badge" id="attendee-count">0명</span>
+      <button class="btn btn-secondary" id="btn-add-row"
+        style="font-size:10px; padding:6px 14px; font-family:var(--font-title); margin-left:auto;">
+        + 행 추가
+      </button>
+    </div>
+
+    <div class="card" style="overflow:visible;">
+      <table class="data-table" id="attendee-table">
+        <thead>
+          <tr>
+            <th style="width:38%;">성명</th>
+            <th style="width:32%;">소속</th>
+            <th style="width:22%;">직위</th>
+            <th style="width:8%;"></th>
+          </tr>
+        </thead>
+        <tbody id="attendee-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="info-error" class="alert alert-error" style="display:none; max-width:760px; margin-top:12px;"></div>
+</section>
+
+<style>
+/* 자동완성 드롭다운 */
+.ac-wrapper    { position: relative; }
+.ac-dropdown   {
+  position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 300;
+  background: var(--color-bg-card); border: 1px solid var(--color-red);
+  border-radius: var(--radius-card); max-height: 180px; overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.ac-item       {
+  padding: 8px 12px; cursor: pointer; font-size: 13px;
+  color: var(--color-text); transition: background 0.1s;
+}
+.ac-item:hover { background: var(--color-navy); }
+.ac-item em    { color: var(--color-red); font-style: normal; font-weight:700; }
+</style>
+
+<script>
+(function () {
+  let employees = [];   // [{name, dept, position}]
+
+  // ── 사원명부 로드 ──────────────────────────────────
+  async function loadEmployees() {
+    try {
+      const res = await Employee.list();
+      employees = res.employees || [];
+    } catch { employees = []; }
+  }
+
+  // ── 저장값 복원 ───────────────────────────────────
+  function restoreValues() {
+    const saved = window.meetingInfo;
+    if (!saved) {
+      // 기본값: 현재 시각
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      document.getElementById('meeting-datetime').value = now.toISOString().slice(0, 16);
+      return;
+    }
+    document.getElementById('meeting-datetime').value = saved.datetime || '';
+    document.getElementById('meeting-location').value = saved.location  || '';
+    document.getElementById('meeting-type').value      = saved.type      || '';
+    document.getElementById('meeting-agenda').value    = saved.agenda    || '';
+    (saved.participants || []).forEach(addRow);
+  }
+
+  // ── 행 추가 ───────────────────────────────────────
+  function addRow(data = {}) {
+    const tbody = document.getElementById('attendee-tbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="ac-wrapper">
+        <input type="text" class="form-input att-name" placeholder="성명"
+               style="font-size:13px; padding:7px 10px;" value="${esc(data.name || '')}" autocomplete="off" />
+        <div class="ac-dropdown" style="display:none;"></div>
+      </td>
+      <td>
+        <input type="text" class="form-input att-dept" placeholder="소속"
+               style="font-size:13px; padding:7px 10px;" value="${esc(data.dept || '')}" />
+      </td>
+      <td>
+        <input type="text" class="form-input att-position" placeholder="직위"
+               style="font-size:13px; padding:7px 10px;" value="${esc(data.position || '')}" />
+      </td>
+      <td style="text-align:center;">
+        <button class="btn btn-ghost btn-del-row"
+          style="font-size:11px; padding:4px 10px; border-color:var(--color-red); color:var(--color-red);">✕</button>
+      </td>`;
+    tbody.appendChild(tr);
+    attachRowEvents(tr);
+    updateCount();
+  }
+
+  function attachRowEvents(tr) {
+    // 삭제
+    tr.querySelector('.btn-del-row').addEventListener('click', () => {
+      tr.remove();
+      updateCount();
+    });
+
+    // 자동완성
+    const nameInput = tr.querySelector('.att-name');
+    const dropdown  = tr.querySelector('.ac-dropdown');
+
+    nameInput.addEventListener('input', () => {
+      const q = nameInput.value.trim();
+      if (!q || employees.length === 0) { dropdown.style.display = 'none'; return; }
+
+      const filtered = employees.filter((e) =>
+        e.name.includes(q)
+      ).slice(0, 8);
+
+      if (filtered.length === 0) { dropdown.style.display = 'none'; return; }
+
+      dropdown.innerHTML = filtered.map((e) =>
+        `<div class="ac-item" data-name="${esc(e.name)}" data-dept="${esc(e.dept)}" data-pos="${esc(e.position)}">
+          ${highlight(e.name, q)}
+          <span style="color:var(--color-text-muted); font-size:11px; margin-left:8px;">${esc(e.dept)} · ${esc(e.position)}</span>
+        </div>`
+      ).join('');
+      dropdown.style.display = 'block';
+
+      dropdown.querySelectorAll('.ac-item').forEach((item) => {
+        item.addEventListener('mousedown', (e) => {
+          e.preventDefault();  // blur 방지
+          nameInput.value = item.dataset.name;
+          tr.querySelector('.att-dept').value     = item.dataset.dept;
+          tr.querySelector('.att-position').value = item.dataset.pos;
+          dropdown.style.display = 'none';
+        });
+      });
+    });
+
+    nameInput.addEventListener('blur', () => {
+      setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+    });
+  }
+
+  function highlight(text, query) {
+    if (!query) return esc(text);
+    const idx = text.indexOf(query);
+    if (idx < 0) return esc(text);
+    return esc(text.slice(0, idx)) + `<em>${esc(query)}</em>` + esc(text.slice(idx + query.length));
+  }
+
+  function updateCount() {
+    const rows = document.querySelectorAll('#attendee-tbody tr');
+    document.getElementById('attendee-count').textContent = `${rows.length}명`;
+  }
+
+  document.getElementById('btn-add-row').addEventListener('click', () => addRow());
+
+  // ── 유효성 검사 & 저장 ─────────────────────────────
+  window.onNextValidate = function () {
+    hideError();
+    const datetime = document.getElementById('meeting-datetime').value.trim();
+    const location = document.getElementById('meeting-location').value.trim();
+    const type     = document.getElementById('meeting-type').value;
+
+    if (!datetime) { showError('일시를 입력해 주세요.'); return false; }
+    if (!location) { showError('장소를 입력해 주세요.'); return false; }
+    if (!type)     { showError('회의 종류를 선택해 주세요.'); return false; }
+
+    const rows = [...document.querySelectorAll('#attendee-tbody tr')];
+    if (rows.length === 0) { showError('참석자를 1명 이상 입력해 주세요.'); return false; }
+
+    const participants = rows.map((tr) => ({
+      name:     tr.querySelector('.att-name').value.trim(),
+      dept:     tr.querySelector('.att-dept').value.trim(),
+      position: tr.querySelector('.att-position').value.trim(),
+    })).filter((p) => p.name);
+
+    if (participants.length === 0) { showError('참석자 성명을 입력해 주세요.'); return false; }
+
+    // 전역 저장
+    window.meetingInfo = {
+      datetime,
+      location,
+      type,
+      agenda: document.getElementById('meeting-agenda').value.trim(),
+      participants,
+    };
+    window.employeeDb = employees;  // pseudonymize 단계에서 사용
+
+    return true;
+  };
+
+  function showError(msg) { const e = document.getElementById('info-error'); e.textContent = msg; e.style.display = 'block'; }
+  function hideError()    { document.getElementById('info-error').style.display = 'none'; }
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // ── 초기화 ────────────────────────────────────────
+  loadEmployees().then(restoreValues);
+})();
+</script>
