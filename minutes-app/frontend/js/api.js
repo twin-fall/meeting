@@ -241,6 +241,60 @@ const LLM = {
   },
 };
 
+// ── 실명 복원 & 출력 ──────────────────────────────────────
+
+const Output = {
+  /**
+   * 가명 텍스트에서 실명을 복원합니다.
+   * @param {string} anonymizedText
+   * @param {Object} mappingTable  alias → original
+   */
+  restore(anonymizedText, mappingTable) {
+    return apiFetch('/output/restore', {
+      method: 'POST',
+      body: JSON.stringify({ anonymized_text: anonymizedText, mapping_table: mappingTable }),
+    });
+  },
+
+  /**
+   * Word(.docx) 파일을 생성하고 브라우저 다운로드를 트리거합니다.
+   * @param {Object} payload  ExportRequest 필드
+   */
+  async downloadDocx(payload) {
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/output/export-docx`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+    } catch {
+      throw new Error('서버에 연결할 수 없습니다. 앱을 다시 시작해 주세요.');
+    }
+    if (!response.ok) {
+      let detail = '문서 생성에 실패했습니다.';
+      try { detail = (await response.json()).detail || detail; } catch { /* ignore */ }
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+
+    // Content-Disposition 헤더에서 파일명 추출 시도
+    const cd = response.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    a.download = match ? decodeURIComponent(match[1].replace(/"/g, '')) : 'minutes.docx';
+    a.href = url;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  /** 세션 가명처리 매핑 소거 */
+  clearSession() {
+    return apiFetch('/session/clear', { method: 'DELETE' });
+  },
+};
+
 // ── 회의록 생성 (레거시 stub) ──────────────────────────────
 
 const Minutes = {

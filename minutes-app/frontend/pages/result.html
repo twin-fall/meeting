@@ -1,0 +1,190 @@
+<section class="page-result">
+
+  <!-- ── 헤더 ────────────────────────────────────────────── -->
+  <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+    <h1 class="page-title" style="color:var(--color-red); margin-bottom:0;">COMPLETE!</h1>
+    <span id="restore-badge" class="badge" style="display:none;"></span>
+  </div>
+  <p style="color:var(--color-text-muted); font-size:13px; margin-bottom:24px;">
+    실명이 복원된 최종 회의록입니다. 내용을 확인하고 내보내세요.
+  </p>
+
+  <!-- ── 복원 오류 ─────────────────────────────────────────── -->
+  <div id="restore-error" class="alert alert-error" style="display:none; max-width:740px; margin-bottom:16px;"></div>
+
+  <!-- ── 편집 영역 ─────────────────────────────────────────── -->
+  <div style="max-width:740px; margin-bottom:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <label class="form-label" style="margin:0;">회의록 본문</label>
+      <span id="char-count" style="font-size:12px; color:var(--color-text-muted);"></span>
+    </div>
+    <textarea id="result-textarea" class="form-input"
+      rows="20"
+      style="font-family:var(--font-body); font-size:13px; line-height:1.7; resize:vertical; white-space:pre-wrap;"
+      placeholder="회의록 내용을 불러오는 중..."></textarea>
+  </div>
+
+  <!-- ── 내보내기 버튼 ─────────────────────────────────────── -->
+  <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:32px;">
+    <button class="btn btn-ghost" id="btn-copy" style="font-family:var(--font-title); font-size:10px;">
+      📋 COPY
+    </button>
+    <button class="btn btn-ghost" id="btn-txt" style="font-family:var(--font-title); font-size:10px;">
+      💾 .TXT
+    </button>
+    <button class="btn" id="btn-docx" style="font-family:var(--font-title); font-size:10px;">
+      📄 .DOCX
+    </button>
+    <span id="export-status" style="align-self:center; font-size:12px; color:var(--color-text-muted);"></span>
+  </div>
+
+  <!-- ── 구분선 ─────────────────────────────────────────────── -->
+  <hr style="border:none; border-top:1px solid var(--color-border); max-width:740px; margin-bottom:28px;" />
+
+  <!-- ── 새 회의록 작성 ─────────────────────────────────────── -->
+  <div style="max-width:740px;">
+    <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:12px;">
+      새 회의록을 작성하려면 아래 버튼을 클릭하세요. 현재 세션 데이터가 초기화됩니다.
+    </p>
+    <button class="btn btn-ghost" id="btn-new-meeting"
+      style="font-family:var(--font-title); font-size:10px; color:var(--color-red); border-color:var(--color-red);">
+      ↺ 새 회의록 작성
+    </button>
+  </div>
+
+</section>
+
+<script>
+(function () {
+  // ── 세션 데이터 수집 ──────────────────────────────────────
+  const generatedText  = window.generatedMinutes || '';
+  const mappingTable   = (window.pseudonymResult && window.pseudonymResult.mapping_table) || {};
+  const meetingInfo    = window.meetingInfo    || {};
+  const pseudoResult   = window.pseudonymResult || {};
+  const speakerMapping = window.speakerMapping  || {};
+
+  // ── DOM refs ──────────────────────────────────────────────
+  const textarea      = document.getElementById('result-textarea');
+  const badge         = document.getElementById('restore-badge');
+  const errorBox      = document.getElementById('restore-error');
+  const charCount     = document.getElementById('char-count');
+  const exportStatus  = document.getElementById('export-status');
+
+  // ── textarea 글자 수 업데이트 ─────────────────────────────
+  function updateCharCount() {
+    const n = textarea.value.length;
+    charCount.textContent = `${n.toLocaleString()}자`;
+  }
+  textarea.addEventListener('input', updateCharCount);
+
+  // ── 실명 복원 API 호출 ────────────────────────────────────
+  async function doRestore() {
+    if (!generatedText) {
+      textarea.value = '(생성된 회의록이 없습니다. 8단계로 돌아가 회의록을 생성하세요.)';
+      updateCharCount();
+      return;
+    }
+
+    try {
+      const data = await Output.restore(generatedText, mappingTable);
+      textarea.value = data.restored_text || generatedText;
+      updateCharCount();
+
+      if (data.replaced_count > 0) {
+        badge.textContent = `실명 복원 ${data.replaced_count}건`;
+        badge.style.display = 'inline-block';
+        badge.style.background = '#1a5c2a';
+        badge.style.color = '#6aff9e';
+      }
+    } catch (e) {
+      errorBox.textContent = '실명 복원 중 오류: ' + e.message;
+      errorBox.style.display = 'block';
+      textarea.value = generatedText;   // fallback: 가명 그대로
+      updateCharCount();
+    }
+  }
+
+  doRestore();
+
+  // ── COPY ──────────────────────────────────────────────────
+  document.getElementById('btn-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(textarea.value);
+      exportStatus.textContent = '클립보드에 복사됨 ✓';
+    } catch {
+      exportStatus.textContent = '복사 실패';
+    }
+    setTimeout(() => { exportStatus.textContent = ''; }, 2500);
+  });
+
+  // ── .TXT 다운로드 ─────────────────────────────────────────
+  document.getElementById('btn-txt').addEventListener('click', () => {
+    const blob = new Blob([textarea.value], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+
+    const date = (meetingInfo.date || new Date().toISOString().slice(0, 10)).slice(0, 10).replace(/-/g, '');
+    const type = meetingInfo.meetingType || '회의';
+    a.download = `회의록_${date}_${type}.txt`;
+    a.href = url;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    exportStatus.textContent = '.txt 저장됨 ✓';
+    setTimeout(() => { exportStatus.textContent = ''; }, 2500);
+  });
+
+  // ── .DOCX 다운로드 ────────────────────────────────────────
+  document.getElementById('btn-docx').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-docx');
+    btn.disabled = true;
+    exportStatus.textContent = 'Word 문서 생성 중...';
+
+    const attendees = [];
+    if (meetingInfo.attendees && Array.isArray(meetingInfo.attendees)) {
+      meetingInfo.attendees.forEach(a => {
+        attendees.push({ name: a.name || '', dept: a.dept || '', position: a.position || '' });
+      });
+    }
+
+    const payload = {
+      restored_text:  textarea.value,
+      mapping_table:  mappingTable,
+      meeting_date:   meetingInfo.date    || '',
+      meeting_type:   meetingInfo.meetingType || '회의',
+      location:       meetingInfo.location || '',
+      attendees,
+      agenda:         meetingInfo.agenda  || '',
+    };
+
+    try {
+      await Output.downloadDocx(payload);
+      exportStatus.textContent = '.docx 저장됨 ✓';
+    } catch (e) {
+      exportStatus.textContent = 'Word 생성 실패: ' + e.message;
+    }
+
+    btn.disabled = false;
+    setTimeout(() => { exportStatus.textContent = ''; }, 3000);
+  });
+
+  // ── 새 회의록 작성 ────────────────────────────────────────
+  document.getElementById('btn-new-meeting').addEventListener('click', async () => {
+    if (!confirm('현재 세션 데이터가 모두 초기화됩니다. 계속하시겠습니까?')) return;
+
+    // 전역 세션 변수 초기화
+    window.meetingInfo      = null;
+    window.sttResult        = null;
+    window.speakerMapping   = null;
+    window.pseudonymResult  = null;
+    window.generatedMinutes = null;
+
+    // 서버 세션 초기화 (실패해도 무시)
+    try { await Output.clearSession(); } catch { /* ignore */ }
+
+    // Stage 3(회의 정보)으로 이동
+    if (typeof goToStage === 'function') goToStage(3);
+  });
+
+})();
+</script>

@@ -105,7 +105,12 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
+  // 세션 가명처리 매핑 소거 (백엔드가 살아있을 때)
+  try {
+    await fetch(`http://localhost:${BACKEND_PORT}/session/clear`, { method: 'DELETE' });
+  } catch { /* ignore */ }
+
   if (backendProcess) {
     backendProcess.kill();
   }
