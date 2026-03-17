@@ -2,7 +2,7 @@
  * api.js - FastAPI 백엔드(localhost:8765) 호출 유틸리티
  */
 
-const API_BASE = 'http://localhost:8765';
+const API_BASE = 'http://127.0.0.1:8765';
 
 /**
  * 공통 fetch 래퍼. 에러 시 한국어 메시지를 throw.
