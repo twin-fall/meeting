@@ -134,13 +134,9 @@ const STT = {
     return apiFetch('/stt/process', { method: 'POST', headers: {}, body: form });
   },
 
-  /**
-   * SSE EventSource 반환 — 진행률 이벤트를 구독.
-   * 각 메시지: { stage, percent, running, error, done }
-   * @returns {EventSource}
-   */
-  progressSource() {
-    return new EventSource(`${API_BASE}/stt/progress`);
+  /** 진행률 단일 JSON 스냅샷 조회 — 폴링용. { stage, percent, running, error, done } */
+  status() {
+    return apiFetch('/stt/status');
   },
 
   /** 처리 완료 결과 조회. */

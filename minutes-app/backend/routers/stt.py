@@ -429,6 +429,18 @@ async def get_progress():
     )
 
 
+@router.get("/status")
+async def get_status():
+    """진행률 단일 JSON 스냅샷 — 폴링용."""
+    return {
+        "stage":   _state["stage"],
+        "percent": _state["percent"],
+        "running": _state["running"],
+        "error":   _state["error"],
+        "done":    _state["result"] is not None,
+    }
+
+
 @router.get("/result")
 async def get_result():
     """마지막 처리 결과 반환."""

@@ -128,27 +128,31 @@
 
   const SUPPORTED = new Set(['.m4a','.mp3','.aac','.wav','.flac','.mp4','.webm']);
 
-  let selectedFile  = null;
-  let evtSource     = null;
-  let elapsedTimer  = null;
-  let elapsedSecs   = 0;
-  let resultData    = null;
+  const POLL_INTERVAL = 2000;   // 2초
+  const MAX_POLLS     = 300;    // 최대 10분
+
+  let selectedFile    = null;
+  let elapsedTimer    = null;
+  let elapsedSecs     = 0;
+  let resultData      = null;
+  let progressTimer   = null;   // setInterval 핸들
+  let pollCount       = 0;
 
   // ── DOM 참조 ─────────────────────────────────────────
-  const dropZone       = document.getElementById('drop-zone');
-  const fileInput      = document.getElementById('file-input');
-  const fileReady      = document.getElementById('file-ready');
-  const fileNameBadge  = document.getElementById('file-name-badge');
-  const btnAnalyze     = document.getElementById('btn-analyze');
-  const btnReset       = document.getElementById('btn-reset');
-  const progressSection= document.getElementById('progress-section');
-  const stageText      = document.getElementById('stage-text');
-  const elapsedText    = document.getElementById('elapsed-text');
-  const progressBar    = document.getElementById('progress-bar');
-  const percentText    = document.getElementById('percent-text');
-  const btnCancel      = document.getElementById('btn-cancel');
-  const sttError       = document.getElementById('stt-error');
-  const resultSection  = document.getElementById('result-section');
+  const dropZone        = document.getElementById('drop-zone');
+  const fileInput       = document.getElementById('file-input');
+  const fileReady       = document.getElementById('file-ready');
+  const fileNameBadge   = document.getElementById('file-name-badge');
+  const btnAnalyze      = document.getElementById('btn-analyze');
+  const btnReset        = document.getElementById('btn-reset');
+  const progressSection = document.getElementById('progress-section');
+  const stageText       = document.getElementById('stage-text');
+  const elapsedText     = document.getElementById('elapsed-text');
+  const progressBar     = document.getElementById('progress-bar');
+  const percentText     = document.getElementById('percent-text');
+  const btnCancel       = document.getElementById('btn-cancel');
+  const sttError        = document.getElementById('stt-error');
+  const resultSection   = document.getElementById('result-section');
 
   // ── 파일 선택 ─────────────────────────────────────────
   dropZone.addEventListener('click', () => fileInput.click());
@@ -194,7 +198,6 @@
     hideError();
     resultSection.style.display = 'none';
 
-    // HF 토큰 읽기 (electron-store)
     let hfToken = '';
     if (window.electronAPI) {
       hfToken = (await window.electronAPI.store.get('hfToken')) || '';
@@ -212,9 +215,8 @@
       return;
     }
 
-    // 진행률 UI 시작
     startProgressUI();
-    subscribeProgress();
+    startPolling();
   }
 
   // ── 진행률 UI ─────────────────────────────────────────
@@ -238,117 +240,71 @@
   function updateBar(percent, stage) {
     progressBar.style.width = `${percent}%`;
     percentText.textContent = `${percent}%`;
-    stageText.textContent   = `${stage}...`;
+    stageText.textContent   = stage;
   }
 
-  // ── SSE 구독 ──────────────────────────────────────────
-  function subscribeProgress() {
-    if (evtSource) { evtSource.close(); evtSource = null; }
-
-    evtSource = STT.progressSource();
-
-    evtSource.onmessage = async (e) => {
-      let data;
-      try { data = JSON.parse(e.data); } catch { return; }
-
-      updateBar(data.percent, data.stage);
-
-      if (data.error) {
-        evtSource.close(); evtSource = null;
-        stopProgressUI();
-        stageText.textContent = '오류 발생';
-        showError(data.error);
-        resetAnalyzeButtons();
-        return;
-      }
-
-      if (data.done) {
-        // evtSource를 null로 먼저 설정 → onerror 핸들러가 중복 실행하지 않도록 차단
-        evtSource.close(); evtSource = null;
-        stopProgressUI();
-        updateBar(100, '완료');
-        await fetchAndRenderResult();
-      }
-    };
-
-    // EventSource는 서버가 스트림을 정상 종료할 때도 onerror를 발생시킨다.
-    // evtSource가 이미 null이면 done 핸들러가 처리 중이거나 완료된 것이므로 무시한다.
-    // 그렇지 않으면 (처리 도중 연결이 끊긴 것) → 결과 폴링으로 전환한다.
-    evtSource.onerror = async () => {
-      if (!evtSource) return;          // done 핸들러가 이미 처리한 경우
-      evtSource.close(); evtSource = null;
-      stopProgressUI();
-      if (resultData) return;          // 이미 결과가 있으면 종료
-
-      stageText.textContent = '연결 중단 — 결과 확인 중...';
-      progressSection.style.display = 'block';
-      await pollUntilResult();
-    };
+  // ── 폴링 (2초 간격 /stt/status GET) ──────────────────
+  function startPolling() {
+    stopPolling();
+    pollCount = 0;
+    progressTimer = setInterval(doPoll, POLL_INTERVAL);
   }
 
-  // ── 결과 단일 취득 (done 이벤트 수신 직후) ────────────────
-  async function fetchAndRenderResult() {
-    try {
-      resultData = await STT.result();
-      stageText.textContent = '완료!';
-      renderResult(resultData);
-    } catch (err) {
-      showError(err.message);
+  function stopPolling() {
+    if (progressTimer !== null) {
+      clearInterval(progressTimer);
+      progressTimer = null;
     }
-    resetAnalyzeButtons();
   }
 
-  // ── 폴링 (SSE 연결 중단 시 백업) ─────────────────────────
-  // /stt/result가 200을 반환할 때까지 2초 간격으로 재시도한다.
-  // "처리 결과가 없습니다" 오류는 아직 진행 중이므로 재시도하고,
-  // 그 외 오류는 백엔드 실제 오류로 간주해 즉시 표시한다.
-  let _polling = false;
-  async function pollUntilResult() {
-    if (_polling) return;
-    _polling = true;
+  async function doPoll() {
+    pollCount++;
+    if (pollCount > MAX_POLLS) {
+      stopPolling();
+      stopProgressUI();
+      showError('처리 시간이 초과되었습니다. 다시 시도해주세요.');
+      resetAnalyzeButtons();
+      return;
+    }
 
-    const INTERVAL = 2000;
-    const MAX_ATTEMPTS = 300;   // 300 × 2 s = 10분
+    let data;
+    try {
+      data = await STT.status();
+    } catch {
+      // 일시적 네트워크 오류 — 다음 인터벌에서 재시도
+      return;
+    }
 
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    updateBar(data.percent, data.stage);
+
+    if (data.error) {
+      stopPolling();
+      stopProgressUI();
+      showError(data.error);
+      resetAnalyzeButtons();
+      return;
+    }
+
+    if (data.done) {
+      stopPolling();
+      stopProgressUI();
+      updateBar(100, '완료');
       try {
-        const data = await STT.result();
-        resultData = data;
-        updateBar(100, '완료');
+        resultData = await STT.result();
         stageText.textContent = '완료!';
         renderResult(resultData);
-        resetAnalyzeButtons();
-        _polling = false;
-        return;
       } catch (err) {
-        const msg = (err.message || '');
-        // 재시도 가능한 두 가지 상황:
-        //  1. "처리 결과가 없습니다" (404) — 백엔드가 아직 처리 중
-        //  2. "서버에 연결할 수 없습니다" — SSE 종료 직후 일시적 네트워크 오류
-        const retryable = msg.includes('처리 결과가 없습니다')
-                       || msg.includes('서버에 연결할 수 없습니다');
-        if (retryable) {
-          await new Promise(r => setTimeout(r, INTERVAL));
-          continue;
-        }
-        // 그 외 (백엔드 500 오류 등) → 즉시 표시
-        showError(msg || '처리 중 오류가 발생했습니다.');
-        resetAnalyzeButtons();
-        _polling = false;
-        return;
+        showError(err.message);
       }
+      resetAnalyzeButtons();
     }
-
-    showError('처리 시간이 초과되었습니다. 다시 시도해주세요.');
-    resetAnalyzeButtons();
-    _polling = false;
   }
 
   // ── 취소 ──────────────────────────────────────────────
   btnCancel.addEventListener('click', async () => {
     try {
       await STT.cancel();
-      if (evtSource) { evtSource.close(); evtSource = null; }
+      stopPolling();
       stopProgressUI();
       stageText.textContent = '취소됨';
       progressSection.style.display = 'none';
