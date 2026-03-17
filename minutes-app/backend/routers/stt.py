@@ -67,7 +67,48 @@ if not hasattr(torchaudio, "set_audio_backend"):
 if not hasattr(torchaudio, "list_audio_backends"):
     torchaudio.list_audio_backends = lambda: ["soundfile"]
 
-# ── 패치 4: torchaudio.load — av 기반 완전 대체 ───────────────────────────
+# ── 패치 4 & 5: torchaudio.load / torchaudio.info — av + 16 kHz 통일 ──────
+#
+# 문제: pyannote는 torchaudio.info()로 전체 프레임 수를 파악한 뒤,
+#       그 sample_rate 기준의 frame_offset / num_frames로 torchaudio.load()를
+#       구간별 호출한다. load가 다른 SR로 디코딩하면 단위가 어긋나 크기 불일치 발생.
+#
+# 해결: info와 load 모두 동일한 _DIAR_SR(16000 Hz) 기준으로 통일한다.
+#       pyannote.audio 가 내부적으로 16000 Hz 를 기대하므로 한 번에 맞춘다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DIAR_SR: int = 16000   # pyannote가 기대하는 sample rate
+
+
+def _av_decode_mono16k(path: str) -> "np.ndarray":
+    """
+    av로 파일을 디코딩해 16 kHz mono float32 1-D numpy 배열을 반환한다.
+
+    - AudioResampler 출력이 프레임마다 다른 샘플 수를 가질 수 있으므로
+      각 프레임을 1-D numpy 배열로 수집한 뒤 numpy.concatenate 로 결합한다.
+      (torch.cat / torch.stack 를 쓰면 크기 불일치 오류가 재발한다.)
+    - resampler.resample(None) 으로 내부 버퍼 flush.
+    """
+    import av
+    import numpy as np
+
+    chunks: list = []
+    container = av.open(str(path))
+    try:
+        resampler = av.AudioResampler(format="fltp", layout="mono", rate=_DIAR_SR)
+        for frame in container.decode(audio=0):
+            for rf in resampler.resample(frame):
+                chunks.append(rf.to_ndarray()[0].copy())   # shape: (n,) float32
+        for rf in resampler.resample(None):                 # flush 잔여 샘플
+            chunks.append(rf.to_ndarray()[0].copy())
+    finally:
+        container.close()
+
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(chunks, axis=0).astype(np.float32)  # (T,)
+
+
 def _av_load(
     path,
     frame_offset: int = 0,
@@ -78,73 +119,53 @@ def _av_load(
     backend=None,
 ):
     """
-    av(PyAV) 기반 오디오 로더.
+    av 기반 torchaudio.load 대체.
 
-    핵심 수정:
-    - AudioResampler 출력 각 프레임을 1D numpy 배열로 수집 후
-      numpy.concatenate 로 결합 → 프레임별 샘플 수 불일치 완전 해결.
-    - resampler.resample(None) 으로 내부 버퍼 flush.
+    - 항상 _DIAR_SR(16 kHz) mono float32 텐서를 반환한다.
+    - frame_offset / num_frames 는 _DIAR_SR 기준 샘플 인덱스다.
+    - 반환 sample_rate 도 _DIAR_SR 로 고정하여 torchaudio.info 와 일치시킨다.
     """
-    import av
     import numpy as np
 
-    container = av.open(str(path))
-    try:
-        audio_stream = container.streams.audio[0]
-        sr: int = audio_stream.sample_rate
-
-        # fltp(float32 planar) + mono 로 통일 — 채널·포맷 불일치 방지
-        resampler = av.AudioResampler(format="fltp", layout="mono", rate=sr)
-
-        chunks: list = []
-        for frame in container.decode(audio=0):
-            for rf in resampler.resample(frame):
-                # rf.to_ndarray() shape: (1, n_samples) for planar mono
-                chunks.append(rf.to_ndarray()[0].copy())  # 1D float32
-
-        # 내부 잔여 샘플 flush
-        for rf in resampler.resample(None):
-            chunks.append(rf.to_ndarray()[0].copy())
-    finally:
-        container.close()
-
-    if not chunks:
-        return torch.zeros(1, 0, dtype=torch.float32), sr
-
-    # numpy.concatenate → 1D → tensor (1, T) : 크기 불일치 없음
-    waveform_np = np.concatenate(chunks, axis=0).astype(np.float32)
+    waveform_np = _av_decode_mono16k(path)
 
     if frame_offset > 0:
         waveform_np = waveform_np[frame_offset:]
     if num_frames > 0:
         waveform_np = waveform_np[:num_frames]
 
-    return torch.from_numpy(waveform_np).unsqueeze(0), sr  # (1, T)
+    tensor = torch.from_numpy(waveform_np).unsqueeze(0)   # (1, T)
+    return tensor, _DIAR_SR
 
 
-# ── 패치 5: torchaudio.info — av 기반 완전 대체 ───────────────────────────
 def _av_info(path, format=None, backend=None):
-    """av 기반 오디오 메타 정보 조회."""
+    """
+    av 기반 torchaudio.info 대체.
+
+    - sample_rate 를 _DIAR_SR 로 고정한다.
+    - num_frames 도 _DIAR_SR 기준으로 환산한다.
+      → _av_load 의 frame_offset / num_frames 단위와 완전히 일치한다.
+    """
     import av
 
     container = av.open(str(path))
     try:
         stream = container.streams.audio[0]
-        sr = stream.sample_rate
-        channels = stream.channels or 1
         if stream.duration is not None and stream.time_base is not None:
-            num_frames = int(float(stream.duration * stream.time_base) * sr)
+            duration_s = float(stream.duration * stream.time_base)
         else:
-            num_frames = 0
+            # duration 메타데이터 없는 파일 (일부 WAV): 0으로 fallback
+            duration_s = 0.0
+        num_frames_16k = int(duration_s * _DIAR_SR)
     finally:
         container.close()
 
     return _AudioMetaData(
-        sample_rate=sr,
-        num_frames=num_frames,
-        num_channels=channels,
-        bits_per_sample=0,
-        encoding="",
+        sample_rate=_DIAR_SR,
+        num_frames=num_frames_16k,
+        num_channels=1,
+        bits_per_sample=32,
+        encoding="fltp",
     )
 
 
