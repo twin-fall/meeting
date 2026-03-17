@@ -6,11 +6,157 @@ stt.py - STT(음성인식) + 화자 분리 라우터
   GET  /stt/progress  - SSE 진행률 스트리밍
   GET  /stt/result    - 처리 결과 조회
   POST /stt/cancel    - 처리 취소 요청
+
+환경 요건:
+  Python 3.11, torch 2.1.0+cpu, torchaudio 2.1.0+cpu,
+  pyannote.audio 3.3.1, av 설치, 회사망 HuggingFace SSL 차단
 """
+
+# ═══════════════════════════════════════════════════════════════════════════
+# [COMPAT] torchaudio / torch / torchcodec 호환성 패치
+#
+# 적용 오류 목록 및 해결 방법:
+#   1. torchaudio.set_audio_backend   없음 → dummy 함수
+#   2. torchaudio.AudioMetaData       없음 → namedtuple
+#   3. torchaudio.list_audio_backends 없음 → ['soundfile'] 반환
+#   4. torch.load weights_only 기본값 → False 강제
+#   5. torchcodec 미설치             → dummy 모듈 등록
+#   6. torchaudio.load/info wav/m4a 실패 → av 기반으로 완전 대체
+#   7. av 프레임별 샘플 수 불일치   → numpy.concatenate 로 1D 결합
+# ═══════════════════════════════════════════════════════════════════════════
+
+import os
+import sys
+import types
+from collections import namedtuple
+
+# HuggingFace 오프라인 강제 (회사 네트워크 SSL 차단 대응)
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+import torch
+import torchaudio
+
+# ── 패치 1: torch.load weights_only=False 강제 ─────────────────────────────
+_orig_torch_load = torch.load
+
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+
+torch.load = _patched_torch_load
+
+# ── 패치 2: torchcodec dummy 모듈 등록 ────────────────────────────────────
+if "torchcodec" not in sys.modules:
+    _tc_mod = types.ModuleType("torchcodec")
+    _tc_dec = types.ModuleType("torchcodec.decoders")
+    sys.modules["torchcodec"] = _tc_mod
+    sys.modules["torchcodec.decoders"] = _tc_dec
+
+# ── 패치 3: torchaudio 누락 API 추가 ──────────────────────────────────────
+_AudioMetaData = namedtuple(
+    "AudioMetaData",
+    ["sample_rate", "num_frames", "num_channels", "bits_per_sample", "encoding"],
+)
+
+if not hasattr(torchaudio, "AudioMetaData"):
+    torchaudio.AudioMetaData = _AudioMetaData
+
+if not hasattr(torchaudio, "set_audio_backend"):
+    torchaudio.set_audio_backend = lambda *a, **kw: None
+
+if not hasattr(torchaudio, "list_audio_backends"):
+    torchaudio.list_audio_backends = lambda: ["soundfile"]
+
+# ── 패치 4: torchaudio.load — av 기반 완전 대체 ───────────────────────────
+def _av_load(
+    path,
+    frame_offset: int = 0,
+    num_frames: int = -1,
+    normalize: bool = True,
+    channels_first: bool = True,
+    format=None,
+    backend=None,
+):
+    """
+    av(PyAV) 기반 오디오 로더.
+
+    핵심 수정:
+    - AudioResampler 출력 각 프레임을 1D numpy 배열로 수집 후
+      numpy.concatenate 로 결합 → 프레임별 샘플 수 불일치 완전 해결.
+    - resampler.resample(None) 으로 내부 버퍼 flush.
+    """
+    import av
+    import numpy as np
+
+    container = av.open(str(path))
+    try:
+        audio_stream = container.streams.audio[0]
+        sr: int = audio_stream.sample_rate
+
+        # fltp(float32 planar) + mono 로 통일 — 채널·포맷 불일치 방지
+        resampler = av.AudioResampler(format="fltp", layout="mono", rate=sr)
+
+        chunks: list = []
+        for frame in container.decode(audio=0):
+            for rf in resampler.resample(frame):
+                # rf.to_ndarray() shape: (1, n_samples) for planar mono
+                chunks.append(rf.to_ndarray()[0].copy())  # 1D float32
+
+        # 내부 잔여 샘플 flush
+        for rf in resampler.resample(None):
+            chunks.append(rf.to_ndarray()[0].copy())
+    finally:
+        container.close()
+
+    if not chunks:
+        return torch.zeros(1, 0, dtype=torch.float32), sr
+
+    # numpy.concatenate → 1D → tensor (1, T) : 크기 불일치 없음
+    waveform_np = np.concatenate(chunks, axis=0).astype(np.float32)
+
+    if frame_offset > 0:
+        waveform_np = waveform_np[frame_offset:]
+    if num_frames > 0:
+        waveform_np = waveform_np[:num_frames]
+
+    return torch.from_numpy(waveform_np).unsqueeze(0), sr  # (1, T)
+
+
+# ── 패치 5: torchaudio.info — av 기반 완전 대체 ───────────────────────────
+def _av_info(path, format=None, backend=None):
+    """av 기반 오디오 메타 정보 조회."""
+    import av
+
+    container = av.open(str(path))
+    try:
+        stream = container.streams.audio[0]
+        sr = stream.sample_rate
+        channels = stream.channels or 1
+        if stream.duration is not None and stream.time_base is not None:
+            num_frames = int(float(stream.duration * stream.time_base) * sr)
+        else:
+            num_frames = 0
+    finally:
+        container.close()
+
+    return _AudioMetaData(
+        sample_rate=sr,
+        num_frames=num_frames,
+        num_channels=channels,
+        bits_per_sample=0,
+        encoding="",
+    )
+
+
+torchaudio.load = _av_load
+torchaudio.info = _av_info
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 이하 기존 STT / 화자 분리 / 병합 로직 (변경 없음)
+# ═══════════════════════════════════════════════════════════════════════════
 
 import asyncio
 import json
-import os
 import tempfile
 import threading
 import time
@@ -77,20 +223,22 @@ def _load_diarization(hf_token: str):
         if _diarization_pipeline is not None:
             return _diarization_pipeline
 
-        from pyannote.audio import Pipeline
-
-        models_dir = os.path.join(
-            os.path.dirname(__file__), "..", "..", "models", "pyannote"
+        models_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "models", "pyannote")
         )
         os.makedirs(models_dir, exist_ok=True)
-        os.environ["PYANNOTE_CACHE"] = models_dir
 
-        kwargs = {}
-        if hf_token:
-            kwargs["use_auth_token"] = hf_token
+        # HF 캐시 경로 설정 (오프라인 모드: 이미 다운로드된 모델 사용)
+        os.environ["HF_HUB_CACHE"]          = models_dir
+        os.environ["HUGGINGFACE_HUB_CACHE"] = models_dir  # legacy 호환
+        os.environ["HF_HUB_OFFLINE"]        = "1"
+
+        from pyannote.audio import Pipeline
 
         _diarization_pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1", **kwargs
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=hf_token or None,
+            cache_dir=models_dir,
         )
     return _diarization_pipeline
 
@@ -188,7 +336,6 @@ def _run_pipeline(file_path: str, hf_token: str) -> None:
         _set_progress("오류", _state["percent"])
     finally:
         _state["running"] = False
-        # 임시 파일 삭제
         try:
             if os.path.exists(tmp_to_delete):
                 os.unlink(tmp_to_delete)
@@ -214,7 +361,6 @@ async def process_audio(
     if _state["running"]:
         raise HTTPException(status_code=409, detail="이미 처리 중인 작업이 있습니다.")
 
-    # 임시 파일로 저장
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
         tmp.write(content)
@@ -238,17 +384,16 @@ async def get_progress():
         while True:
             payload = json.dumps(
                 {
-                    "stage": _state["stage"],
+                    "stage":   _state["stage"],
                     "percent": _state["percent"],
                     "running": _state["running"],
-                    "error": _state["error"],
-                    "done": _state["result"] is not None,
+                    "error":   _state["error"],
+                    "done":    _state["result"] is not None,
                 },
                 ensure_ascii=False,
             )
             yield f"data: {payload}\n\n"
 
-            # 완료 또는 오류 시 스트림 종료
             if not _state["running"] and (
                 _state["result"] is not None or _state["error"] is not None
             ):
