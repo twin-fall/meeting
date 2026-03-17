@@ -10,8 +10,12 @@ const API_BASE = 'http://127.0.0.1:8765';
 async function apiFetch(path, options = {}) {
   let response;
   try {
+    const method = (options.method || 'GET').toUpperCase();
+    const isBodyless = method === 'GET' || method === 'HEAD';
     response = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers: isBodyless
+        ? { ...options.headers }
+        : { 'Content-Type': 'application/json', ...options.headers },
       ...options,
     });
   } catch {
