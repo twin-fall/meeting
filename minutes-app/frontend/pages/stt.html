@@ -244,9 +244,12 @@
   }
 
   // ── 폴링 (2초 간격 /stt/status GET) ──────────────────
+  let _inFlight = false;  // 동시 실행 방지
+
   function startPolling() {
     stopPolling();
-    pollCount = 0;
+    pollCount  = 0;
+    _inFlight  = false;
     progressTimer = setInterval(doPoll, POLL_INTERVAL);
   }
 
@@ -258,45 +261,53 @@
   }
 
   async function doPoll() {
-    pollCount++;
-    if (pollCount > MAX_POLLS) {
-      stopPolling();
-      stopProgressUI();
-      showError('처리 시간이 초과되었습니다. 다시 시도해주세요.');
-      resetAnalyzeButtons();
-      return;
-    }
-
-    let data;
+    if (_inFlight) return;   // 이전 요청이 아직 처리 중이면 건너뜀
+    _inFlight = true;
     try {
-      data = await STT.status();
-    } catch {
-      // 일시적 네트워크 오류 — 다음 인터벌에서 재시도
-      return;
-    }
-
-    updateBar(data.percent, data.stage);
-
-    if (data.error) {
-      stopPolling();
-      stopProgressUI();
-      showError(data.error);
-      resetAnalyzeButtons();
-      return;
-    }
-
-    if (data.done) {
-      stopPolling();
-      stopProgressUI();
-      updateBar(100, '완료');
-      try {
-        resultData = await STT.result();
-        stageText.textContent = '완료!';
-        renderResult(resultData);
-      } catch (err) {
-        showError(err.message);
+      pollCount++;
+      if (pollCount > MAX_POLLS) {
+        stopPolling();
+        stopProgressUI();
+        showError('처리 시간이 초과되었습니다. 다시 시도해주세요.');
+        resetAnalyzeButtons();
+        return;
       }
-      resetAnalyzeButtons();
+
+      let data;
+      try {
+        data = await STT.status();
+      } catch {
+        return;  // 일시적 네트워크 오류 — 다음 인터벌에서 재시도
+      }
+
+      updateBar(data.percent, data.stage);
+
+      if (data.error) {
+        stopPolling();
+        stopProgressUI();
+        showError(data.error);
+        resetAnalyzeButtons();
+        return;
+      }
+
+      if (data.done) {
+        // 폴링을 유지한 채로 result 취득 시도.
+        // 실패하면 에러를 화면에 표시하고 다음 인터벌에서 재시도한다.
+        // 성공하면 그 때 폴링·경과 타이머를 종료한다.
+        updateBar(100, '결과 수신 중...');
+        try {
+          resultData = await STT.result();
+          stopPolling();
+          stopProgressUI();
+          stageText.textContent = '완료!';
+          renderResult(resultData);
+          resetAnalyzeButtons();
+        } catch (err) {
+          showError(err.message || '결과를 가져오는 데 실패했습니다. 재시도 중...');
+        }
+      }
+    } finally {
+      _inFlight = false;
     }
   }
 
