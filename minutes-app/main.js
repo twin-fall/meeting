@@ -36,7 +36,7 @@ async function waitForBackend() {
   const start = Date.now();
   while (Date.now() - start < BACKEND_READY_TIMEOUT) {
     try {
-      const response = await fetch(`http://localhost:${BACKEND_PORT}/health`);
+      const response = await fetch(`http://127.0.0.1:${BACKEND_PORT}/health`);
       if (response.ok) return true;
     } catch {
       // 아직 준비 중
@@ -77,7 +77,7 @@ ipcMain.handle('store:delete', (_, key) => store.delete(key));
 // IPC: 백엔드 상태 확인
 ipcMain.handle('backend:health', async () => {
   try {
-    const response = await fetch(`http://localhost:${BACKEND_PORT}/health`);
+    const response = await fetch(`http://127.0.0.1:${BACKEND_PORT}/health`);
     return response.ok;
   } catch {
     return false;
@@ -108,7 +108,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   // 세션 가명처리 매핑 소거 (백엔드가 살아있을 때)
   try {
-    await fetch(`http://localhost:${BACKEND_PORT}/session/clear`, { method: 'DELETE' });
+    await fetch(`http://127.0.0.1:${BACKEND_PORT}/session/clear`, { method: 'DELETE' });
   } catch { /* ignore */ }
 
   if (backendProcess) {
