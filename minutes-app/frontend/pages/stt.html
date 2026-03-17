@@ -254,8 +254,8 @@
       updateBar(data.percent, data.stage);
 
       if (data.error) {
+        evtSource.close(); evtSource = null;
         stopProgressUI();
-        evtSource.close();
         stageText.textContent = '오류 발생';
         showError(data.error);
         resetAnalyzeButtons();
@@ -263,25 +263,81 @@
       }
 
       if (data.done) {
-        evtSource.close();
+        // evtSource를 null로 먼저 설정 → onerror 핸들러가 중복 실행하지 않도록 차단
+        evtSource.close(); evtSource = null;
         stopProgressUI();
         updateBar(100, '완료');
-        stageText.textContent = '완료!';
-        try {
-          resultData = await STT.result();
-          renderResult(resultData);
-        } catch (err) {
-          showError(err.message);
-        }
-        resetAnalyzeButtons();
+        await fetchAndRenderResult();
       }
     };
 
-    evtSource.onerror = () => {
+    // EventSource는 서버가 스트림을 정상 종료할 때도 onerror를 발생시킨다.
+    // evtSource가 이미 null이면 done 핸들러가 처리 중이거나 완료된 것이므로 무시한다.
+    // 그렇지 않으면 (처리 도중 연결이 끊긴 것) → 결과 폴링으로 전환한다.
+    evtSource.onerror = async () => {
+      if (!evtSource) return;          // done 핸들러가 이미 처리한 경우
+      evtSource.close(); evtSource = null;
       stopProgressUI();
-      evtSource.close();
-      showError('진행률 스트림 연결이 끊어졌습니다. 처리가 계속 진행 중일 수 있습니다.');
+      if (resultData) return;          // 이미 결과가 있으면 종료
+
+      stageText.textContent = '연결 중단 — 결과 확인 중...';
+      progressSection.style.display = 'block';
+      await pollUntilResult();
     };
+  }
+
+  // ── 결과 단일 취득 (done 이벤트 수신 직후) ────────────────
+  async function fetchAndRenderResult() {
+    try {
+      resultData = await STT.result();
+      stageText.textContent = '완료!';
+      renderResult(resultData);
+    } catch (err) {
+      showError(err.message);
+    }
+    resetAnalyzeButtons();
+  }
+
+  // ── 폴링 (SSE 연결 중단 시 백업) ─────────────────────────
+  // /stt/result가 200을 반환할 때까지 2초 간격으로 재시도한다.
+  // "처리 결과가 없습니다" 오류는 아직 진행 중이므로 재시도하고,
+  // 그 외 오류는 백엔드 실제 오류로 간주해 즉시 표시한다.
+  let _polling = false;
+  async function pollUntilResult() {
+    if (_polling) return;
+    _polling = true;
+
+    const INTERVAL = 2000;
+    const MAX_ATTEMPTS = 300;   // 300 × 2 s = 10분
+
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      try {
+        const data = await STT.result();
+        resultData = data;
+        updateBar(100, '완료');
+        stageText.textContent = '완료!';
+        renderResult(resultData);
+        resetAnalyzeButtons();
+        _polling = false;
+        return;
+      } catch (err) {
+        const msg = (err.message || '');
+        if (msg.includes('처리 결과가 없습니다')) {
+          // 아직 백엔드 처리 중 → 재시도
+          await new Promise(r => setTimeout(r, INTERVAL));
+          continue;
+        }
+        // 실제 오류 (500 등) → 즉시 표시
+        showError(msg || '처리 중 오류가 발생했습니다.');
+        resetAnalyzeButtons();
+        _polling = false;
+        return;
+      }
+    }
+
+    showError('처리 시간이 초과되었습니다. 다시 시도해주세요.');
+    resetAnalyzeButtons();
+    _polling = false;
   }
 
   // ── 취소 ──────────────────────────────────────────────
