@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const Store = require('electron-store');
@@ -56,6 +56,7 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: false,
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle: 'default',
@@ -85,6 +86,19 @@ ipcMain.handle('backend:health', async () => {
 });
 
 app.whenReady().then(async () => {
+  // 백엔드 응답에 CORS 헤더 주입 — file:// 오리진에서 fetch 허용
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: [`http://127.0.0.1:${BACKEND_PORT}/*`] },
+    (details, callback) => {
+      const headers = Object.assign({}, details.responseHeaders, {
+        'Access-Control-Allow-Origin': ['*'],
+        'Access-Control-Allow-Methods': ['GET, POST, PUT, DELETE, OPTIONS'],
+        'Access-Control-Allow-Headers': ['Content-Type, Authorization'],
+      });
+      callback({ responseHeaders: headers });
+    }
+  );
+
   startBackend();
   await createWindow();
 
